@@ -206,6 +206,3 @@ The current build is an MVP. Production roadmap:
 - VSS snapshots take a few seconds. Production servers under heavy I/O may briefly stall — schedule via GPO for off-hours where possible.
 - Memory dumps require `winpmem.exe` alongside the collector and a kernel driver load. Some EDRs flag this — code-sign the collector and add to the AV exclusion list.
 
-## License
-
-Internal — DFIR engineering use only.
