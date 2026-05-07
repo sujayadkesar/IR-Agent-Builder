@@ -1,0 +1,15 @@
+name: windows.cloud.onedrive
+display: OneDrive Logs
+description: "OneDrive sync logs — detects data exfiltration via personal cloud storage."
+platform: windows
+type: file_pattern
+category: Cloud & Modern
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 50
+time_sec: 10
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Local/Microsoft/OneDrive/logs/**/*"

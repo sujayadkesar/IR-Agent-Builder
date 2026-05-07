@@ -1,0 +1,17 @@
+name: windows.live.dnscache
+display: DNS Cache
+description: "ipconfig /displaydns — cached DNS resolutions reveal C2 domain lookups."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 2
+sources:
+  - type: command
+    cmd: ipconfig
+    args: ["/displaydns"]
+    output_file: dnscache.txt
+    timeout_sec: 30

@@ -1,0 +1,31 @@
+name: linux.persistence.kernel_modules
+display: Kernel Modules
+description: >
+  Loaded kernel modules and module configuration. Rootkits often install as
+  kernel modules for stealth persistence.
+platform: linux
+type: composite
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 5
+time_sec: 5
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/modprobe.d/*"
+      - "etc/modules"
+      - "etc/modules-load.d/*"
+  - type: command
+    cmd: lsmod
+    args: []
+    output_file: lsmod.txt
+    bash: true
+  - type: command
+    cmd: modinfo
+    args: []
+    output_file: modinfo.txt
+    bash: true
+    note: "Run modinfo on each loaded module"

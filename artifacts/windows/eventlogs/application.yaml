@@ -1,0 +1,24 @@
+name: windows.eventlogs.application
+display: Application.evtx
+description: Application errors, crashes, AV events, installer events.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 30
+time_sec: 10
+params:
+  - key: scope
+    label: Time range
+    type: select
+    default: all
+    options:
+      - { value: all, label: "Whole .evtx file", size_mul: 1.0 }
+      - { value: last_30d, label: "Last 30 days", size_mul: 0.4 }
+      - { value: last_7d, label: "Last 7 days", size_mul: 0.15 }
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Application.evtx"

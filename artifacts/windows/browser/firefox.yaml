@@ -1,0 +1,31 @@
+name: windows.browser.firefox
+display: Firefox
+description: "Firefox browser data per profile."
+platform: windows
+type: file_pattern
+category: Browser
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 100
+time_sec: 20
+params:
+  - key: scope
+    label: Collection scope
+    type: select
+    default: standard
+    options:
+      - { value: minimal, label: "places.sqlite only", size_mul: 0.3 }
+      - { value: standard, label: "Standard forensic set", size_mul: 1.0 }
+      - { value: full, label: "Full Profiles folder", size_mul: 8.0 }
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/places.sqlite"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/cookies.sqlite"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/formhistory.sqlite"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/downloads.sqlite"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/logins.json"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/key4.db"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/cert9.db"
+      - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/sessionstore.jsonlz4"

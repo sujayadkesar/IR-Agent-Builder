@@ -1,0 +1,31 @@
+name: linux.system.ssh
+display: SSH Configuration & Keys
+description: >
+  SSH server/client config, authorized_keys for all users, known_hosts,
+  and host keys. Detects backdoor SSH keys and unauthorized access.
+platform: linux
+type: file_pattern
+category: System Information
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 2
+time_sec: 5
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/ssh/sshd_config"
+      - "etc/ssh/ssh_config"
+      - "etc/ssh/ssh_host_*"
+      - "home/*/.ssh/authorized_keys"
+      - "home/*/.ssh/authorized_keys2"
+      - "home/*/.ssh/known_hosts"
+      - "home/*/.ssh/config"
+      - "home/*/.ssh/id_*"
+      - "root/.ssh/authorized_keys"
+      - "root/.ssh/authorized_keys2"
+      - "root/.ssh/known_hosts"
+      - "root/.ssh/config"
+      - "root/.ssh/id_*"

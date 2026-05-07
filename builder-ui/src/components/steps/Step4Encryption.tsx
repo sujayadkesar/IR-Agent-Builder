@@ -120,8 +120,22 @@ export default function Step4Encryption({ spec, update }: P) {
 
       <Card title="Runtime Hardening">
         <div className="space-y-2">
-          <Toggle label="Require admin to run" desc="Refuses to run if not elevated (the EXE manifest already requests UAC; this adds a defensive runtime check)." value={spec.requireAdmin} onChange={(v) => update('requireAdmin', v)} />
-          <Toggle label="Silent / no prompt" desc="Required for GPO startup-script deployment. Set OFF for interactive IR use." value={spec.silent} onChange={(v) => update('silent', v)} />
+          <Toggle
+            label={spec.targetPlatform === 'linux' ? 'Require root to run' : 'Require admin to run'}
+            desc={spec.targetPlatform === 'linux'
+              ? 'Refuses to run if not root. Most Linux artifacts need root for /proc, journald, and audit logs.'
+              : 'Refuses to run if not elevated (the EXE manifest already requests UAC; this adds a defensive runtime check).'}
+            value={spec.requireAdmin}
+            onChange={(v) => update('requireAdmin', v)}
+          />
+          <Toggle
+            label="Silent / no prompt"
+            desc={spec.targetPlatform === 'linux'
+              ? 'No interactive prompts. Required for cron/systemd-based deployment.'
+              : 'Required for GPO startup-script deployment. Set OFF for interactive IR use.'}
+            value={spec.silent}
+            onChange={(v) => update('silent', v)}
+          />
           <Toggle label="Delete local container after upload" desc="Reduces on-disk exposure. Strongly recommended for production." value={spec.deleteAfterUpload} onChange={(v) => update('deleteAfterUpload', v)} />
         </div>
       </Card>

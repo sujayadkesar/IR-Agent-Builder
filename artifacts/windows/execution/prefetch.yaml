@@ -1,0 +1,23 @@
+name: windows.execution.prefetch
+display: Prefetch
+description: >
+  Windows Prefetch files (.pf) record binary execution times, file paths loaded,
+  run counts, and volume information. Critical for proving program execution and
+  building execution timelines. Located in C:\Windows\Prefetch.
+platform: windows
+type: file_pattern
+category: Evidence of Execution
+author: DFIR Engineering
+version: "1.0.0"
+references:
+  - https://www.sans.org/blog/digital-forensics-prefetch/
+  - https://ericzimmerman.github.io/#!index.md
+deps: [ADMIN]
+size_mb: 30
+time_sec: 15
+
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/Prefetch/*.pf"
+      - "Windows/Prefetch/Layout.ini"

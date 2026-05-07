@@ -1,0 +1,19 @@
+name: windows.filesystem.recyclebin
+display: Recycle Bin
+description: >
+  Deleted file metadata from $Recycle.Bin — original path, deletion timestamp,
+  file size, and SID of the deleting user. $I files contain metadata, $R files
+  contain the actual deleted content.
+platform: windows
+type: file_pattern
+category: File System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 15
+time_sec: 5
+
+sources:
+  - type: file_pattern
+    globs:
+      - "$Recycle.Bin/**/*"

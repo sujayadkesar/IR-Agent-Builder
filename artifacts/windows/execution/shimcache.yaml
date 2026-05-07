@@ -1,0 +1,23 @@
+name: windows.execution.shimcache
+display: AppCompatCache (ShimCache)
+description: >
+  Application Compatibility Cache lives inside the SYSTEM registry hive at
+  HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache.
+  Records execution timestamps for executables. Collected as part of
+  registry.hives — this artifact marks it for the analyst.
+platform: windows
+type: registry
+category: Evidence of Execution
+author: DFIR Engineering
+version: "1.0.0"
+references:
+  - https://www.mandiant.com/resources/blog/caching-out-shimcache-pt1
+deps: [ADMIN]
+size_mb: 5
+time_sec: 5
+
+sources:
+  - type: registry
+    hives: ["HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\AppCompatCache"]
+    method: reg_export
+    note: "Full data is inside SYSTEM hive — ensure registry.hives is also enabled"

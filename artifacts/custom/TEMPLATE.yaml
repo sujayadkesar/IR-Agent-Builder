@@ -1,0 +1,84 @@
+# ============================================================
+# DFIR AgentBuilder — Custom Artifact Template
+# ============================================================
+# Copy this file, rename it, and fill in your artifact definition.
+# Place it in the artifacts/custom/ directory. The server auto-discovers
+# all .yaml files under the artifacts/ tree.
+#
+# See artifacts/schema.yaml for the full specification.
+# ============================================================
+
+name: custom.my_artifact            # REQUIRED: unique dotted identifier
+display: My Custom Artifact          # REQUIRED: human-readable name
+description: >                       # REQUIRED: what this collects
+  Describe what this artifact collects and why it's forensically relevant.
+  Be specific — this text appears in the UI and helps analysts decide
+  whether to include this artifact in their collection.
+
+platform: windows                    # REQUIRED: "windows" | "linux" | "all"
+type: file_pattern                   # REQUIRED: "file_pattern" | "command" | "registry" | "raw_ntfs" | "composite"
+category: Custom                     # REQUIRED: UI grouping
+author: Your Name                    # optional
+version: "1.0.0"                     # optional (semver)
+
+references:                          # optional: links for further reading
+  - https://example.com/docs
+
+deps: [ADMIN]                        # optional: ADMIN, VSS, ROOT, SYSMON, etc.
+size_mb: 10                          # optional: estimated output size (MB)
+time_sec: 5                          # optional: estimated collection time (seconds)
+
+# --- Optional parameters shown in the UI ---
+params:
+  - key: include_logs
+    label: Include log files
+    type: boolean
+    default: true
+  - key: max_age_days
+    label: Maximum file age
+    type: number
+    default: 30
+    min: 1
+    max: 365
+    suffix: days
+  - key: depth
+    label: Collection depth
+    type: select
+    default: standard
+    options:
+      - { value: minimal, label: "Minimal", desc: "Only critical files", size_mul: 0.3 }
+      - { value: standard, label: "Standard", desc: "Recommended set", size_mul: 1.0 }
+      - { value: full, label: "Full", desc: "Everything", size_mul: 5.0 }
+
+# --- Collection sources ---
+# You can have multiple sources. Each runs in sequence.
+sources:
+  # Source type 1: file_pattern — collect files matching globs
+  - type: file_pattern
+    globs:
+      - "path/to/files/*.ext"
+      - "another/path/**/*"
+    # base: "/"            # optional: root for glob resolution (default: collect_root)
+    # recursive: true      # optional
+
+  # Source type 2: command — run a system command and capture output
+  # - type: command
+  #   cmd: my_tool
+  #   args: ["--flag", "value"]
+  #   output_file: output.txt
+  #   timeout_sec: 60        # optional (default: 120)
+  #   bash: false            # set true for Linux
+  #   powershell: false      # set true for PowerShell on Windows
+
+  # Source type 3: registry — collect Windows registry data
+  # - type: registry
+  #   hives: ["HKLM\\SOFTWARE\\MyApp"]
+  #   method: reg_export     # reg_save | reg_export | raw_copy
+
+  # Source type 4: raw_ntfs — read raw NTFS metadata files
+  # - type: raw_ntfs
+  #   files: ["$MFT"]
+
+  # Source type 5: composite — chain other artifacts
+  # - type: composite
+  #   artifacts: ["windows.execution.prefetch", "windows.registry.hives"]

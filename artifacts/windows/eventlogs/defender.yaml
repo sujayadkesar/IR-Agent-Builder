@@ -1,0 +1,15 @@
+name: windows.eventlogs.defender
+display: Windows Defender
+description: Threat detections, exclusion changes, scan results, real-time protection events.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 20
+time_sec: 10
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-Windows Defender*.evtx"

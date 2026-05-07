@@ -1,0 +1,15 @@
+name: windows.cloud.teams
+display: Microsoft Teams
+description: "Teams cache — message DB, call logs, cached files."
+platform: windows
+type: file_pattern
+category: Cloud & Modern
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 200
+time_sec: 30
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Roaming/Microsoft/Teams/**/*"

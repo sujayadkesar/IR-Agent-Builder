@@ -1,0 +1,40 @@
+name: windows.browser.edge
+display: Edge
+description: "Microsoft Edge browser data."
+platform: windows
+type: file_pattern
+category: Browser
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 100
+time_sec: 20
+params:
+  - key: scope
+    label: Collection scope
+    type: select
+    default: standard
+    options:
+      - { value: minimal, label: "History only", size_mul: 0.25 }
+      - { value: standard, label: "Standard forensic set", size_mul: 1.0 }
+      - { value: full, label: "Full User Data folder", size_mul: 10.0 }
+  - key: profiles
+    label: Which profiles
+    type: select
+    default: all
+    options:
+      - { value: default, label: "Default profile only", size_mul: 0.5 }
+      - { value: all, label: "All profiles", size_mul: 1.0 }
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/{{profile_glob}}/History"
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/{{profile_glob}}/Cookies"
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/{{profile_glob}}/Login Data"
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/{{profile_glob}}/Web Data"
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/{{profile_glob}}/Bookmarks"
+      - "Users/*/AppData/Local/Microsoft/Edge/User Data/Local State"
+    template_vars:
+      profile_glob:
+        from_param: profiles
+        map: { default: "Default", all: "*" }

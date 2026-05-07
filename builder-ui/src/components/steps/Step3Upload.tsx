@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Cloud, HardDrive, CheckCircle2, XCircle, Loader2, FileJson } from 'lucide-react';
+import { Cloud, HardDrive, CheckCircle2, XCircle, Loader2, FileJson, Layers, Zap } from 'lucide-react';
 
-import type { BuildSpec } from '../../lib/types';
+import type { BuildSpec, ChunkUploadConfig } from '../../lib/types';
 import Card from '../ui/Card';
 import { Field, Input, Select, Toggle } from '../ui/Form';
 import { api } from '../../lib/api';
@@ -10,7 +10,10 @@ interface P { spec: BuildSpec; update: <K extends keyof BuildSpec>(k: K, v: Buil
 
 export default function Step3Upload({ spec, update }: P) {
   const u = spec.upload;
+  const ch = spec.chunkUpload;
+  const isLinux = spec.targetPlatform === 'linux';
   const setU = (patch: Partial<typeof u>) => update('upload', { ...u, ...patch });
+  const setCh = (patch: Partial<ChunkUploadConfig>) => update('chunkUpload', { ...ch, ...patch });
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [policyJson, setPolicyJson] = useState<string | null>(null);
@@ -54,118 +57,202 @@ export default function Step3Upload({ spec, update }: P) {
             desc="Multipart upload, SSE-KMS, write-only IAM. Recommended for production fleets." />
           <DestCard active={u.kind === 'local'} onClick={() => setU({ kind: 'local' })}
             icon={<HardDrive className="w-5 h-5" />} title="Local / UNC Path"
-            desc="External drive, mapped network share, or air-gapped IR dropbox." />
+            desc={isLinux
+              ? "Local directory, NFS mount, or SSHFS mount for air-gapped collection."
+              : "External drive, mapped network share, or air-gapped IR dropbox."} />
         </div>
       </Card>
 
       {u.kind === 's3' && (
-        <Card title="AWS S3 Configuration" desc="Credentials are embedded in the resulting EXE. Use a write-only IAM user — generate the minimum-required policy below.">
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Bucket name" required>
-              <Input value={u.bucket || ''} onChange={(v) => setU({ bucket: v })} placeholder="ir-evidence-acmecorp-2026" />
-            </Field>
-            <Field label="Region" required>
-              <Select value={u.region || ''} onChange={(v) => setU({ region: v })}>
-                <option value="">Select region…</option>
-                <option value="ap-south-1">ap-south-1 (Mumbai)</option>
-                <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
-                <option value="us-east-1">us-east-1 (N. Virginia)</option>
-                <option value="us-west-2">us-west-2 (Oregon)</option>
-                <option value="eu-west-1">eu-west-1 (Ireland)</option>
-                <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
-                <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
-              </Select>
-            </Field>
-            <Field label="Access Key ID" required>
-              <Input value={u.accessKeyId || ''} onChange={(v) => setU({ accessKeyId: v })} placeholder="AKIA…" className="font-mono" />
-            </Field>
-            <Field label="Secret Access Key" required>
-              <Input type="password" value={u.secretAccessKey || ''} onChange={(v) => setU({ secretAccessKey: v })} placeholder="wJalrXUtnFEMI/…" className="font-mono" />
-            </Field>
-            <Field label="SSE-KMS Key ARN" desc="Required for SSE-KMS encryption (recommended).">
-              <Input value={u.sseKmsKeyId || ''} onChange={(v) => setU({ sseKmsKeyId: v })} placeholder="arn:aws:kms:ap-south-1:…" className="font-mono text-xs" />
-            </Field>
-            <Field label="Custom endpoint" desc="Leave empty for AWS. Use http(s)://host:port for MinIO.">
-              <Input value={u.endpoint || ''} onChange={(v) => setU({ endpoint: v })} placeholder="(AWS default)" className="font-mono" />
-            </Field>
-          </div>
-
-          <div className="mt-4">
-            <Field label="S3 object key prefix (folder layout)" required desc="Variables: %SITE% %FQDN% %TIMESTAMP% %UUID%. Each upload becomes <prefix>/<filename>. Default %SITE%/%FQDN% gives a clean per-host folder per site.">
-              <Input value={u.prefixTemplate ?? '%SITE%/%FQDN%'} onChange={(v) => setU({ prefixTemplate: v })} placeholder="%SITE%/%FQDN%" className="font-mono" />
-            </Field>
-            <div
-              className="mt-2 p-3 rounded border text-xs"
-              style={{
-                backgroundColor: 'var(--warning-bg)',
-                borderColor: 'var(--warning)',
-                color: 'var(--warning)',
-              }}
-            >
-              <strong>Don't put the access key here.</strong> Folder names are visible to anyone with ListBucket. Keep keys out of object paths and use Object Lock + write-only IAM (see <code className="font-mono">docs/aws-setup.md</code>) for tamper-resistance.
+        <>
+          <Card title="AWS S3 Configuration" desc="Credentials are embedded in the collector binary. Use a write-only IAM user — generate the minimum-required policy below.">
+            <div className="grid md:grid-cols-2 gap-4">
+              <Field label="Bucket name" required>
+                <Input value={u.bucket || ''} onChange={(v) => setU({ bucket: v })} placeholder="ir-evidence-acmecorp-2026" />
+              </Field>
+              <Field label="Region" required>
+                <Select value={u.region || ''} onChange={(v) => setU({ region: v })}>
+                  <option value="">Select region…</option>
+                  <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+                  <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                  <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                  <option value="us-west-2">us-west-2 (Oregon)</option>
+                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                  <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                  <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                </Select>
+              </Field>
+              <Field label="Access Key ID" required>
+                <Input value={u.accessKeyId || ''} onChange={(v) => setU({ accessKeyId: v })} placeholder="AKIA…" className="font-mono" />
+              </Field>
+              <Field label="Secret Access Key" required>
+                <Input type="password" value={u.secretAccessKey || ''} onChange={(v) => setU({ secretAccessKey: v })} placeholder="wJalrXUtnFEMI/…" className="font-mono" />
+              </Field>
+              <Field label="SSE-KMS Key ARN" desc="Required for SSE-KMS encryption (recommended).">
+                <Input value={u.sseKmsKeyId || ''} onChange={(v) => setU({ sseKmsKeyId: v })} placeholder="arn:aws:kms:ap-south-1:…" className="font-mono text-xs" />
+              </Field>
+              <Field label="Custom endpoint" desc="Leave empty for AWS. Use http(s)://host:port for MinIO.">
+                <Input value={u.endpoint || ''} onChange={(v) => setU({ endpoint: v })} placeholder="(AWS default)" className="font-mono" />
+              </Field>
             </div>
-          </div>
 
-          <div className="mt-4 flex gap-3 flex-wrap">
-            <button
-              onClick={onValidate}
-              disabled={validating || !u.bucket || !u.region || !u.accessKeyId || !u.secretAccessKey}
-              className="btn-primary px-4 py-2 rounded-md flex items-center gap-2 text-sm font-medium"
-            >
-              {validating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Validate connection (test PutObject)
-            </button>
-            <button
-              onClick={onGenPolicy}
-              disabled={!u.bucket}
-              className="btn-ghost px-4 py-2 rounded-md flex items-center gap-2 text-sm"
-            >
-              <FileJson className="w-4 h-4" /> Generate IAM policy
-            </button>
-          </div>
-
-          {validationResult && (
-            <div
-              className="mt-3 p-3 rounded border text-sm flex items-start gap-2"
-              style={
-                validationResult.ok
-                  ? { backgroundColor: 'var(--success-bg)', borderColor: 'var(--success)', color: 'var(--success)' }
-                  : { backgroundColor: 'var(--danger-bg)',  borderColor: 'var(--danger)',  color: 'var(--danger)'  }
-              }
-            >
-              {validationResult.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
-              <span>{validationResult.msg}</span>
-            </div>
-          )}
-
-          {policyJson && (
             <div className="mt-4">
-              <div className="text-xs text-[var(--text-muted)] mb-1">Minimum IAM policy — paste into AWS Console → IAM → Policies → Create:</div>
-              <pre
-                className="p-3 rounded border text-xs overflow-x-auto font-mono"
+              <Field label="S3 object key prefix (folder layout)" required desc="Variables: %SITE% %FQDN% %TIMESTAMP% %UUID%. Each upload becomes <prefix>/<filename>. Default %SITE%/%FQDN% gives a clean per-host folder per site.">
+                <Input value={u.prefixTemplate ?? '%SITE%/%FQDN%'} onChange={(v) => setU({ prefixTemplate: v })} placeholder="%SITE%/%FQDN%" className="font-mono" />
+              </Field>
+              <div
+                className="mt-2 p-3 rounded border text-xs"
                 style={{
-                  backgroundColor: 'var(--code-bg)',
-                  borderColor: 'var(--border-default)',
-                  color: 'var(--accent)',
+                  backgroundColor: 'var(--warning-bg)',
+                  borderColor: 'var(--warning)',
+                  color: 'var(--warning)',
                 }}
-              >{policyJson}</pre>
+              >
+                <strong>Credentials are protected.</strong> The build server encrypts AWS keys using AES-256-GCM with fragmented key material before embedding them in the binary. This prevents extraction via strings, hex editors, or disassemblers.
+              </div>
             </div>
-          )}
-        </Card>
+
+            <div className="mt-4 flex gap-3 flex-wrap">
+              <button
+                onClick={onValidate}
+                disabled={validating || !u.bucket || !u.region || !u.accessKeyId || !u.secretAccessKey}
+                className="btn-primary px-4 py-2 rounded-md flex items-center gap-2 text-sm font-medium"
+              >
+                {validating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                Validate connection (test PutObject)
+              </button>
+              <button
+                onClick={onGenPolicy}
+                disabled={!u.bucket}
+                className="btn-ghost px-4 py-2 rounded-md flex items-center gap-2 text-sm"
+              >
+                <FileJson className="w-4 h-4" /> Generate IAM policy
+              </button>
+            </div>
+
+            {validationResult && (
+              <div
+                className="mt-3 p-3 rounded border text-sm flex items-start gap-2"
+                style={
+                  validationResult.ok
+                    ? { backgroundColor: 'var(--success-bg)', borderColor: 'var(--success)', color: 'var(--success)' }
+                    : { backgroundColor: 'var(--danger-bg)',  borderColor: 'var(--danger)',  color: 'var(--danger)'  }
+                }
+              >
+                {validationResult.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
+                <span>{validationResult.msg}</span>
+              </div>
+            )}
+
+            {policyJson && (
+              <div className="mt-4">
+                <div className="text-xs text-[var(--text-muted)] mb-1">Minimum IAM policy — paste into AWS Console → IAM → Policies → Create:</div>
+                <pre
+                  className="p-3 rounded border text-xs overflow-x-auto font-mono"
+                  style={{
+                    backgroundColor: 'var(--code-bg)',
+                    borderColor: 'var(--border-default)',
+                    color: 'var(--accent)',
+                  }}
+                >{policyJson}</pre>
+              </div>
+            )}
+          </Card>
+
+          {/* Chunk upload config — only for S3 */}
+          <Card title="Streaming Chunk Upload" desc="Upload artifacts in chunks during collection instead of building one large ZIP. Essential for 20+ GB collections and low-disk endpoints.">
+            <Toggle
+              label="Enable chunk-based upload"
+              desc="Artifacts are compressed and uploaded as individual S3 multipart parts during collection. Frees disk space immediately after each artifact."
+              value={ch.enabled}
+              onChange={(v) => setCh({ enabled: v })}
+            />
+            {ch.enabled && (
+              <div className="mt-4 space-y-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Chunk size (MB)" desc="Each chunk is uploaded as an S3 multipart part. Min 5 MB (S3 minimum). Larger = fewer API calls, smaller = less RAM.">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={16}
+                        max={1024}
+                        step={16}
+                        value={ch.chunkSizeMb}
+                        onChange={(e) => setCh({ chunkSizeMb: Number(e.target.value) })}
+                        className="flex-1"
+                        style={{ accentColor: 'var(--accent)' }}
+                      />
+                      <div className="font-mono w-20 text-right text-sm" style={{ color: 'var(--accent)' }}>
+                        {ch.chunkSizeMb} MB
+                      </div>
+                    </div>
+                  </Field>
+                  <Field label="Low disk threshold (MB)" desc="If available disk space drops below this, the collector auto-enables streaming mode regardless of the setting above.">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={256}
+                        max={8192}
+                        step={256}
+                        value={ch.lowDiskThresholdMb}
+                        onChange={(e) => setCh({ lowDiskThresholdMb: Number(e.target.value) })}
+                        className="flex-1"
+                        style={{ accentColor: 'var(--accent)' }}
+                      />
+                      <div className="font-mono w-20 text-right text-sm" style={{ color: 'var(--accent)' }}>
+                        {ch.lowDiskThresholdMb >= 1024
+                          ? `${(ch.lowDiskThresholdMb / 1024).toFixed(1)} GB`
+                          : `${ch.lowDiskThresholdMb} MB`}
+                      </div>
+                    </div>
+                  </Field>
+                </div>
+                <Toggle
+                  label="Stream mode (no local staging)"
+                  desc="Never write artifacts to local disk — compress and upload directly from memory. Designed for endpoints with critically low disk space."
+                  value={ch.streamMode}
+                  onChange={(v) => setCh({ streamMode: v })}
+                />
+                <div
+                  className="p-3 rounded border text-xs flex items-start gap-2"
+                  style={{
+                    backgroundColor: 'var(--accent-bg)',
+                    borderColor: 'var(--accent-border)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Layers className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--accent)' }} />
+                  <div>
+                    <strong>How it works:</strong> Each artifact is collected, compressed, and uploaded as an S3 multipart chunk
+                    via a background thread. The local copy is deleted as soon as upload confirms. This approach handles 100+ GB
+                    collections on machines with as little as 2 GB free disk space.
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
       )}
 
       {u.kind === 'local' && (
-        <Card title="Local / UNC Output" desc="The collector copies the encrypted container here at the end of its run.">
+        <Card title={isLinux ? "Local Output Directory" : "Local / UNC Output"} desc="The collector copies the encrypted container here at the end of its run.">
           <Field label="Output directory" required>
-            <Input value={u.localPath || ''} onChange={(v) => setU({ localPath: v })} placeholder={`C:\\IR\\Output  or  \\\\IRSERVER\\IRShare\\Drop`} className="font-mono" />
+            <Input
+              value={u.localPath || ''}
+              onChange={(v) => setU({ localPath: v })}
+              placeholder={isLinux ? '/tmp/ir-output  or  /mnt/nfs/ir-drop' : 'C:\\IR\\Output  or  \\\\IRSERVER\\IRShare\\Drop'}
+              className="font-mono"
+            />
           </Field>
-          <Toggle
-            className="mt-4"
-            label="Verify TLS"
-            desc="Always on for AWS; only relevant for HTTPS endpoints."
-            value={u.verifyTls !== false}
-            onChange={(v) => setU({ verifyTls: v })}
-          />
+          {!isLinux && (
+            <Toggle
+              className="mt-4"
+              label="Verify TLS"
+              desc="Always on for AWS; only relevant for HTTPS endpoints."
+              value={u.verifyTls !== false}
+              onChange={(v) => setU({ verifyTls: v })}
+            />
+          )}
         </Card>
       )}
     </div>

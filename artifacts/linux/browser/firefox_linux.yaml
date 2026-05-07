@@ -1,0 +1,23 @@
+name: linux.browser.firefox
+display: Firefox (Linux)
+description: "Firefox browser data on Linux."
+platform: linux
+type: file_pattern
+category: Browser
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 100
+time_sec: 20
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "home/*/.mozilla/firefox/*/places.sqlite"
+      - "home/*/.mozilla/firefox/*/cookies.sqlite"
+      - "home/*/.mozilla/firefox/*/formhistory.sqlite"
+      - "home/*/.mozilla/firefox/*/logins.json"
+      - "home/*/.mozilla/firefox/*/key4.db"
+      - "home/*/.mozilla/firefox/*/cert9.db"
+      - "home/*/.mozilla/firefox/*/sessionstore.jsonlz4"
+      - "home/*/.mozilla/firefox/profiles.ini"

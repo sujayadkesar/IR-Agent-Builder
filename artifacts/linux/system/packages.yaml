@@ -1,0 +1,35 @@
+name: linux.system.packages
+display: Installed Packages
+description: >
+  List of installed packages from dpkg, rpm, snap, and flatpak. Useful for
+  identifying vulnerable software and unauthorized installations.
+platform: linux
+type: command
+category: System Information
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 5
+time_sec: 10
+
+sources:
+  - type: command
+    cmd: dpkg
+    args: ["-l"]
+    output_file: dpkg_list.txt
+    bash: true
+  - type: command
+    cmd: rpm
+    args: ["-qa", "--queryformat", "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n"]
+    output_file: rpm_list.txt
+    bash: true
+  - type: command
+    cmd: snap
+    args: ["list"]
+    output_file: snap_list.txt
+    bash: true
+  - type: command
+    cmd: pip3
+    args: ["list", "--format=json"]
+    output_file: pip_list.json
+    bash: true

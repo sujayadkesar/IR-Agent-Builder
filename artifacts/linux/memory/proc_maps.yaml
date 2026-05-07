@@ -1,0 +1,26 @@
+name: linux.memory.proc_maps
+display: Process Memory Maps
+description: >
+  /proc/*/maps, /proc/*/status, /proc/*/cmdline for all processes.
+  Detects injected shared libraries, memory-resident malware, and process hollowing.
+platform: linux
+type: command
+category: Memory
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 50
+time_sec: 30
+sources:
+  - type: command
+    cmd: bash
+    args: ["-c", "for pid in /proc/[0-9]*/; do echo \"=== PID $(basename $pid) ===\"; cat $pid/cmdline 2>/dev/null | tr '\\0' ' '; echo; cat $pid/maps 2>/dev/null; echo; done"]
+    output_file: proc_maps.txt
+    bash: true
+    timeout_sec: 120
+  - type: command
+    cmd: bash
+    args: ["-c", "for pid in /proc/[0-9]*/; do echo \"=== PID $(basename $pid) ===\"; cat $pid/status 2>/dev/null; echo; done"]
+    output_file: proc_status.txt
+    bash: true
+    timeout_sec: 60

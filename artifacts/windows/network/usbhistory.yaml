@@ -1,0 +1,17 @@
+name: windows.live.usbhistory
+display: USB History
+description: "Registry USBSTOR — connected USB device history with timestamps."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 2
+sources:
+  - type: command
+    cmd: reg
+    args: ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Enum\\USBSTOR", "/s"]
+    output_file: usbstor.txt
+    timeout_sec: 15

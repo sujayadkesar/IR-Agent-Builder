@@ -1,0 +1,51 @@
+name: windows.browser.chrome
+display: Chrome
+description: "Chrome / Chromium browser data — scope controls how much is collected."
+platform: windows
+type: file_pattern
+category: Browser
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 200
+time_sec: 30
+
+params:
+  - key: scope
+    label: Collection scope
+    type: select
+    default: standard
+    options:
+      - { value: minimal, label: "History only", desc: "Just History DB per profile (~10-50 MB)", size_mul: 0.25 }
+      - { value: standard, label: "Standard forensic set", desc: "History, Cookies, Login Data, Web Data, Bookmarks, Sessions", size_mul: 1.0 }
+      - { value: full, label: "Full User Data folder", desc: "Everything: extensions, IndexedDB, cache. Large.", size_mul: 10.0 }
+  - key: profiles
+    label: Which profiles
+    type: select
+    default: all
+    options:
+      - { value: default, label: "Default profile only", size_mul: 0.5 }
+      - { value: all, label: "All profiles", size_mul: 1.0 }
+
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/History"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Cookies"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Login Data"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Login Data For Account"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Web Data"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Bookmarks"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Top Sites"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Shortcuts"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Sessions/*"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Visited Links"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Network/*"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/{{profile_glob}}/Preferences"
+      - "Users/*/AppData/Local/Google/Chrome/User Data/Local State"
+    template_vars:
+      profile_glob:
+        from_param: profiles
+        map:
+          default: "Default"
+          all: "*"

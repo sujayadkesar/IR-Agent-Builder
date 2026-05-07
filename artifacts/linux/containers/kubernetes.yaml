@@ -1,0 +1,32 @@
+name: linux.containers.kubernetes
+display: Kubernetes Node Artifacts
+description: >
+  Kubernetes node configuration, kubelet logs, pod manifests, and secrets
+  mounted in pods. For nodes running as part of a K8s cluster.
+platform: linux
+type: composite
+category: Containers
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 30
+time_sec: 20
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/kubernetes/**/*"
+      - "var/lib/kubelet/config.yaml"
+      - "var/lib/kubelet/pods/*/volumes/**/*"
+      - "var/log/pods/**/*"
+      - "var/log/containers/**/*"
+  - type: command
+    cmd: kubectl
+    args: ["get", "pods", "--all-namespaces", "-o", "json"]
+    output_file: kubectl_pods.json
+    bash: true
+  - type: command
+    cmd: crictl
+    args: ["ps", "-a", "-o", "json"]
+    output_file: crictl_ps.json
+    bash: true

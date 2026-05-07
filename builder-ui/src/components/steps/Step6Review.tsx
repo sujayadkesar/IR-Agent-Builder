@@ -15,14 +15,17 @@ export default function Step6Review({ spec, catalog }: P) {
   const [buildId, setBuildId] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const isLinux = spec.targetPlatform === 'linux';
 
   const yamlPreview = JSON.stringify({
+    targetPlatform: spec.targetPlatform,
     siteCode: spec.siteCode,
     filenameTemplate: spec.filenameTemplate,
     artifacts: spec.artifacts,
     kapeTargets: spec.kapeTargets,
     useVss: spec.useVss,
     upload: redactUpload(spec.upload),
+    chunkUpload: spec.chunkUpload,
     encryption: { scheme: spec.encryption.scheme, fingerprint: spec.encryption.fingerprintSha256 ?? null },
     requireAdmin: spec.requireAdmin,
     silent: spec.silent,
@@ -61,12 +64,18 @@ export default function Step6Review({ spec, catalog }: P) {
     }
   };
 
+  const binaryName = isLinux ? 'Collector (ELF)' : 'Collector.exe';
+
   return (
     <div className="space-y-6">
       <div>
         <div className="text-[10px] tracking-[0.2em] font-mono mb-1" style={{ color: 'var(--accent)' }}>STEP 6 of 6</div>
         <h2 className="text-2xl font-semibold tracking-tight">Review & Build</h2>
-        <p className="text-sm text-[var(--text-muted)] mt-1">Final review. Click Build to compile a fresh Collector.exe with this configuration baked in.</p>
+        <p className="text-sm text-[var(--text-muted)] mt-1">
+          Final review. Click Build to compile a fresh{' '}
+          <span className="font-mono" style={{ color: 'var(--accent)' }}>{binaryName}</span>{' '}
+          with this configuration baked in.
+        </p>
       </div>
 
       {validation.length > 0 && (
@@ -84,7 +93,7 @@ export default function Step6Review({ spec, catalog }: P) {
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <Card title="Configuration Preview" desc="Secrets redacted. This is what will be embedded into Collector.exe.">
+          <Card title="Configuration Preview" desc="Secrets redacted. This is what will be embedded into the collector binary.">
             <pre
               className="text-xs font-mono rounded p-3 overflow-x-auto max-h-[420px] border"
               style={{
@@ -97,16 +106,38 @@ export default function Step6Review({ spec, catalog }: P) {
         </div>
 
         <div className="space-y-3">
+          <SummaryStat label="Platform" value={isLinux ? 'Linux (ELF x86_64)' : 'Windows (PE x86_64)'} />
           <SummaryStat label="Artifacts" value={spec.artifacts.length} />
           <SummaryStat label="KAPE targets" value={spec.kapeTargets.length} />
           <SummaryStat label="Encryption" value={spec.encryption.scheme.toUpperCase()} />
-          <SummaryStat label="Upload" value={spec.upload.kind === 's3' ? `S3: ${spec.upload.bucket || '(unset)'}` : `Local: ${spec.upload.localPath || '(unset)'}`} />
-          <SummaryStat label="VSS snapshot" value={spec.useVss ? 'YES' : 'NO'} />
+          <SummaryStat
+            label="Upload"
+            value={spec.upload.kind === 's3'
+              ? `S3: ${spec.upload.bucket || '(unset)'}`
+              : `Local: ${spec.upload.localPath || '(unset)'}`}
+          />
+          {spec.upload.kind === 's3' && (
+            <SummaryStat
+              label="Chunk upload"
+              value={spec.chunkUpload.enabled
+                ? `ON · ${spec.chunkUpload.chunkSizeMb}MB chunks`
+                : 'OFF (single ZIP)'}
+            />
+          )}
+          <SummaryStat label={isLinux ? 'Root required' : 'VSS snapshot'} value={isLinux ? 'YES' : (spec.useVss ? 'YES' : 'NO')} />
           <SummaryStat label="Requires admin" value={spec.requireAdmin ? 'YES' : 'NO'} />
+          {spec.upload.kind === 's3' && (
+            <SummaryStat label="Credential vault" value="AES-256-GCM encrypted" />
+          )}
         </div>
       </div>
 
-      <Card title="Build" desc="Streams cargo build output. ~1-3 minutes the first time, ~10-30 seconds on subsequent rebuilds.">
+      <Card
+        title="Build"
+        desc={isLinux
+          ? "Cross-compiles for x86_64-unknown-linux-gnu. Requires the Linux cross-compilation toolchain."
+          : "Streams cargo build output. ~1-3 minutes the first time, ~10-30 seconds on subsequent rebuilds."}
+      >
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={startBuild}
@@ -119,7 +150,7 @@ export default function Step6Review({ spec, catalog }: P) {
           >
             {status === 'building'
               ? <><Loader2 className="w-5 h-5 animate-spin" /> Building...</>
-              : <><Hammer className="w-5 h-5" /> BUILD COLLECTOR</>}
+              : <><Hammer className="w-5 h-5" /> BUILD {isLinux ? 'LINUX' : 'WINDOWS'} COLLECTOR</>}
           </button>
 
           {status === 'complete' && downloadUrl && (
@@ -129,7 +160,7 @@ export default function Step6Review({ spec, catalog }: P) {
               className="btn-secondary px-6 py-3 rounded-md flex items-center gap-2 font-semibold border-2"
               style={{ borderColor: 'var(--accent-2-border)' }}
             >
-              <Download className="w-5 h-5" /> Download Collector.exe
+              <Download className="w-5 h-5" /> Download {binaryName}
             </a>
           )}
 
@@ -161,6 +192,7 @@ export default function Step6Review({ spec, catalog }: P) {
               }}
             >
               <Terminal className="w-3.5 h-3.5" /> Build log {buildId && <span className="font-mono opacity-50">· {buildId.slice(0, 8)}</span>}
+              {isLinux && <span className="font-mono opacity-40">· target: x86_64-unknown-linux-gnu</span>}
             </div>
             <pre
               className="text-[11px] font-mono p-3 overflow-x-auto max-h-[320px] overflow-y-auto whitespace-pre-wrap"
@@ -197,7 +229,7 @@ function redactUpload(u: BuildSpec['upload']) {
       bucket: u.bucket,
       region: u.region,
       accessKeyId: u.accessKeyId ? `${u.accessKeyId.slice(0, 4)}…${u.accessKeyId.slice(-4)}` : '(unset)',
-      secretAccessKey: u.secretAccessKey ? '***REDACTED***' : '(unset)',
+      secretAccessKey: u.secretAccessKey ? '***VAULT_ENCRYPTED***' : '(unset)',
       sseKmsKeyId: u.sseKmsKeyId ?? null,
       endpoint: u.endpoint ?? '(AWS default)',
       prefixTemplate: u.prefixTemplate ?? '',
@@ -220,5 +252,15 @@ function validateSpec(spec: BuildSpec): string[] {
   if (spec.encryption.scheme === 'x509' && !spec.encryption.publicKeyPem) {
     issues.push('X509 encryption selected but no public key — generate or upload one on Step 4.');
   }
+  if (spec.targetPlatform === 'windows' && spec.useVss === false && spec.artifacts.some((a) => LOCKED_ARTIFACTS.has(a))) {
+    issues.push('VSS is OFF but selected artifacts require it for locked system files (Step 2).');
+  }
   return issues;
 }
+
+const LOCKED_ARTIFACTS = new Set([
+  'registry.hives', 'filesystem.mft',
+  'eventlogs.security', 'eventlogs.system', 'eventlogs.application',
+  'eventlogs.powershell', 'eventlogs.sysmon', 'eventlogs.defender',
+  'cloud.outlook',
+]);

@@ -1,0 +1,15 @@
+name: windows.eventlogs.taskscheduler
+display: Task Scheduler
+description: Task registration, execution, and modification events.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 10
+time_sec: 5
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-TaskScheduler*.evtx"

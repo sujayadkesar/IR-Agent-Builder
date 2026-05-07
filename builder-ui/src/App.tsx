@@ -3,7 +3,7 @@ import { ShieldCheck, ChevronRight, ChevronLeft, Activity, Sun, Moon } from 'luc
 import clsx from 'clsx';
 
 import { api } from './lib/api';
-import type { ArtifactCategory, Bundle, BuildSpec } from './lib/types';
+import type { ArtifactCategory, Bundle, BuildSpec, TargetPlatform } from './lib/types';
 import { FALLBACK_BUNDLES } from './lib/bundles';
 import { useTheme } from './lib/theme';
 
@@ -27,12 +27,13 @@ const DEFAULT_SPEC: BuildSpec = {
   siteCode: 'APAC-HYD',
   filenameTemplate: '%FQDN%-%TIMESTAMP%-%UUID%',
   uuidSuffix: true,
-  targetOs: 'win64',
+  targetPlatform: 'windows',
   artifacts: [],
   artifactParams: {},
   kapeTargets: [],
   useVss: true,
   upload: { kind: 'local', localPath: 'C:\\IR\\Output', prefixTemplate: '%SITE%/%FQDN%' },
+  chunkUpload: { enabled: false, chunkSizeMb: 256, streamMode: false, lowDiskThresholdMb: 2048 },
   encryption: { scheme: 'x509' },
   requireAdmin: true,
   silent: true,
@@ -52,10 +53,11 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.artifacts(), api.bundles()])
+    const platform = spec.targetPlatform;
+    Promise.all([api.artifacts(platform), api.bundles(platform)])
       .then(([cat, bun]) => { setCatalog(cat); setBundles(bun); })
       .catch((e) => setLoadError(String(e?.message || e)));
-  }, []);
+  }, [spec.targetPlatform]);
 
   const totals = useMemo(() => {
     if (!catalog) return { sizeMb: 0, timeSec: 0, count: 0 };

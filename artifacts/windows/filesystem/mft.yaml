@@ -1,0 +1,23 @@
+name: windows.filesystem.mft
+display: MFT + LogFile + USN Journal
+description: >
+  Master File Table ($MFT), transaction log ($LogFile), and USN Change Journal
+  ($UsnJrnl:$J). Foundational NTFS filesystem evidence — every file creation,
+  modification, and deletion is recorded here. Requires raw NTFS access.
+platform: windows
+type: raw_ntfs
+category: File System
+author: DFIR Engineering
+version: "1.0.0"
+references:
+  - https://www.sans.org/blog/digital-forensics-mft/
+deps: [ADMIN, VSS]
+size_mb: 800
+time_sec: 90
+
+sources:
+  - type: raw_ntfs
+    files:
+      - "$MFT"
+      - "$LogFile"
+      - "$Extend/$UsnJrnl:$J"

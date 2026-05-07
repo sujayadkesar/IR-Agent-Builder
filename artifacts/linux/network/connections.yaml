@@ -1,0 +1,22 @@
+name: linux.network.connections
+display: Active Connections
+description: "ss/netstat — active TCP/UDP connections with PIDs. Run first for live C2."
+platform: linux
+type: command
+category: Network & Live
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 1
+time_sec: 5
+sources:
+  - type: command
+    cmd: ss
+    args: ["-tulnpe"]
+    output_file: ss.txt
+    bash: true
+  - type: command
+    cmd: netstat
+    args: ["-tulnpe"]
+    output_file: netstat.txt
+    bash: true

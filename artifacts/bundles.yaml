@@ -1,0 +1,243 @@
+# Pre-built collection bundles — headline buttons in the UI.
+# Each bundle is a curated set of artifacts for a specific use case.
+
+bundles:
+  - id: QuickTriage
+    name: Quick Triage
+    platform: windows
+    estimate_label: "5-15 min · ~200 MB"
+    color: emerald
+    description: "Rapid triage — execution, persistence, live network. Safe for live production servers."
+    artifacts:
+      - execution.prefetch
+      - execution.amcache
+      - execution.shimcache
+      - live.netstat
+      - live.pslist
+      - live.dnscache
+      - live.systeminfo
+      - eventlogs.security
+      - eventlogs.system
+      - eventlogs.application
+      - persistence.scheduledtasks
+      - live.autoruns
+      - live.usbhistory
+      - live.wifihistory
+    kape_targets: []
+
+  - id: SANSTriage
+    name: SANS / KAPE Triage
+    platform: windows
+    estimate_label: "30-60 min · 1-3 GB"
+    color: blue
+    description: "Equivalent of KAPE's SANS Triage Package. Full Registry, EVTX, browser, jump lists."
+    artifacts:
+      - execution.prefetch
+      - execution.amcache
+      - execution.shimcache
+      - execution.userassist
+      - live.netstat
+      - live.pslist
+      - live.dnscache
+      - live.arpcache
+      - live.services
+      - live.systeminfo
+      - live.usbhistory
+      - live.wifihistory
+      - live.shares
+      - live.firewallrules
+      - live.autoruns
+      - eventlogs.security
+      - eventlogs.system
+      - eventlogs.application
+      - eventlogs.powershell
+      - eventlogs.defender
+      - eventlogs.rdp
+      - eventlogs.taskscheduler
+      - eventlogs.wmi
+      - eventlogs.bits
+      - registry.hives
+      - filesystem.lnk
+      - filesystem.recyclebin
+      - persistence.scheduledtasks
+      - persistence.startupfolders
+      - browser.chrome
+      - browser.edge
+      - browser.firefox
+      - cloud.onedrive
+    kape_targets:
+      - KapeTriage
+      - EventLogs
+      - Registry
+      - Prefetch
+      - WebBrowsers
+      - JumpLists
+      - LNKFiles
+      - RDPCache
+      - PowerShellConsole
+      - WinDefendDetectionHist
+
+  - id: DeepDive
+    name: Deep Dive
+    platform: windows
+    estimate_label: "1-4 hr · 5-20 GB"
+    color: purple
+    description: "Everything: full MFT/USN, all EVTX, RAM dump, full browser, Outlook. Requires storage headroom."
+    artifacts:
+      - execution.prefetch
+      - execution.amcache
+      - execution.shimcache
+      - execution.userassist
+      - execution.muicache
+      - execution.bam
+      - live.netstat
+      - live.pslist
+      - live.dnscache
+      - live.arpcache
+      - live.services
+      - live.systeminfo
+      - live.usbhistory
+      - live.wifihistory
+      - live.shares
+      - live.firewallrules
+      - live.autoruns
+      - eventlogs.security
+      - eventlogs.system
+      - eventlogs.application
+      - eventlogs.powershell
+      - eventlogs.sysmon
+      - eventlogs.defender
+      - eventlogs.rdp
+      - eventlogs.taskscheduler
+      - eventlogs.wmi
+      - eventlogs.bits
+      - registry.hives
+      - filesystem.mft
+      - filesystem.lnk
+      - filesystem.recyclebin
+      - persistence.scheduledtasks
+      - persistence.startupfolders
+      - browser.chrome
+      - browser.edge
+      - browser.firefox
+      - cloud.onedrive
+      - cloud.outlook
+      - cloud.teams
+      - cred.dpapi
+      - memory.fulldump
+    kape_targets:
+      - KapeTriage
+      - EventLogs
+      - Registry
+      - Prefetch
+      - WebBrowsers
+      - JumpLists
+      - LNKFiles
+      - RDPCache
+      - PowerShellConsole
+      - WinDefendDetectionHist
+      - SRUM
+      - WindowsTimeline
+      - Outlook
+      - DPAPI
+
+  - id: ThreatHunt
+    name: Threat Hunt
+    platform: windows
+    estimate_label: "15-30 min · ~500 MB"
+    color: amber
+    description: "Targeted hunt for active TTPs — live network, persistence, lateral movement. No memory dump."
+    artifacts:
+      - live.netstat
+      - live.pslist
+      - live.dnscache
+      - live.arpcache
+      - live.services
+      - live.autoruns
+      - live.firewallrules
+      - live.shares
+      - execution.prefetch
+      - execution.amcache
+      - execution.bam
+      - eventlogs.security
+      - eventlogs.powershell
+      - eventlogs.sysmon
+      - eventlogs.taskscheduler
+      - eventlogs.wmi
+      - eventlogs.bits
+      - persistence.scheduledtasks
+      - persistence.startupfolders
+      - registry.hives
+    kape_targets:
+      - ScheduledTasks
+      - StartupFolders
+      - PowerShellConsole
+
+  # ---------- Linux bundles ----------
+  - id: LinuxQuickTriage
+    name: Linux Quick Triage
+    platform: linux
+    estimate_label: "5-15 min · ~200 MB"
+    color: emerald
+    description: "Rapid Linux triage — system info, auth logs, active connections, persistence."
+    artifacts:
+      - linux.system.osinfo
+      - linux.system.users
+      - linux.system.ssh
+      - linux.logs.auth
+      - linux.network.connections
+      - linux.network.processes
+      - linux.network.dns
+      - linux.persistence.crontabs
+      - linux.persistence.systemd
+    kape_targets: []
+
+  - id: LinuxFullTriage
+    name: Linux Full Triage
+    platform: linux
+    estimate_label: "30-90 min · 1-5 GB"
+    color: blue
+    description: "Comprehensive Linux collection — all logs, persistence, browser, containers."
+    artifacts:
+      - linux.system.osinfo
+      - linux.system.users
+      - linux.system.ssh
+      - linux.system.packages
+      - linux.logs.syslog
+      - linux.logs.auth
+      - linux.logs.audit
+      - linux.logs.application
+      - linux.network.connections
+      - linux.network.processes
+      - linux.network.firewall
+      - linux.network.dns
+      - linux.persistence.crontabs
+      - linux.persistence.systemd
+      - linux.persistence.initscripts
+      - linux.persistence.kernel_modules
+      - linux.browser.chrome
+      - linux.browser.firefox
+      - linux.memory.proc_maps
+      - linux.containers.docker
+      - linux.containers.kubernetes
+    kape_targets: []
+
+  - id: LinuxThreatHunt
+    name: Linux Threat Hunt
+    platform: linux
+    estimate_label: "15-30 min · ~500 MB"
+    color: amber
+    description: "Targeted Linux threat hunt — connections, persistence, containers, audit logs."
+    artifacts:
+      - linux.network.connections
+      - linux.network.processes
+      - linux.network.firewall
+      - linux.persistence.crontabs
+      - linux.persistence.systemd
+      - linux.persistence.initscripts
+      - linux.persistence.kernel_modules
+      - linux.logs.auth
+      - linux.logs.audit
+      - linux.system.ssh
+      - linux.containers.docker
+    kape_targets: []

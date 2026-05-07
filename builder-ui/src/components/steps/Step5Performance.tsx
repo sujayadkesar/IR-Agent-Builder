@@ -4,6 +4,11 @@ import { Field, Input, Select } from '../ui/Form';
 
 interface P { spec: BuildSpec; update: <K extends keyof BuildSpec>(k: K, v: BuildSpec[K]) => void; }
 
+const DISK_LABEL: Record<string, string> = {
+  windows: 'Cap on spinning disks; increase on fast NVMe endpoints.',
+  linux: 'Increase on SSD/NVMe servers; decrease on VM attached storage.',
+};
+
 export default function Step5Performance({ spec, update }: P) {
   return (
     <div className="space-y-6">
@@ -32,7 +37,7 @@ export default function Step5Performance({ spec, update }: P) {
       </Card>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <Card title="Concurrency" desc="Parallel artifact collectors. Increase on fast NVMe endpoints; decrease on spinning disks.">
+        <Card title="Concurrency" desc={`Parallel artifact collectors. ${DISK_LABEL[spec.targetPlatform] ?? DISK_LABEL.windows}`}>
           <Field label="Workers">
             <Select value={String(spec.concurrency)} onChange={(v) => update('concurrency', Number(v))}>
               {[1, 2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>{n}</option>)}

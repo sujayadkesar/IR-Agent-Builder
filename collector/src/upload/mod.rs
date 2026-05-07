@@ -1,15 +1,17 @@
 //! Upload dispatch.
 //!
-//! Three modes today: `local` (filesystem copy / UNC), `s3` (single PutObject
-//! up to ~100MB, multipart above), and a stub for `sftp` (Transfer Family).
+//! Three modes:
+//!   1. `local`   — filesystem copy / UNC path
+//!   2. `s3`      — single PutObject (≤100MB) or multipart (>100MB)
+//!   3. `chunked` — streaming chunk-based upload (Binalyze AIR-style)
 //!
-//! Why not the official `aws-sdk-s3` crate? It pulls ~70 transitive deps and
-//! ~15MB of binary bloat. For a *single endpoint*, single PutObject use case,
-//! a hand-rolled SigV4 signer over `ureq` is ~150 lines and produces a
-//! collector binary about 60% smaller. We pay the cost of writing the signer
-//! once; the binary every endpoint downloads stays lean.
+//! The chunked mode is activated when:
+//!   - chunk_upload.enabled = true in config
+//!   - Disk space is below the threshold
+//!   - The estimated collection size exceeds available space
 
 pub mod s3;
+pub mod chunked;
 
 use anyhow::{bail, Result};
 use std::path::Path;
@@ -22,7 +24,12 @@ pub fn dispatch(cfg: &UploadCfg, file: &Path, object_key_suffix: &str) -> Result
             let dest = cfg
                 .local_path
                 .clone()
-                .unwrap_or_else(|| "C:\\IR\\Output".to_string());
+                .unwrap_or_else(|| {
+                    #[cfg(target_os = "windows")]
+                    { "C:\\IR\\Output".to_string() }
+                    #[cfg(not(target_os = "windows"))]
+                    { "/tmp/dfir-output".to_string() }
+                });
             local_copy(file, Path::new(&dest))
         }
         "s3" => {

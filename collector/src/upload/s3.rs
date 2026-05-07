@@ -216,6 +216,65 @@ fn abort_multipart(cfg: &S3Cfg, key: &str, upload_id: &str) -> Result<()> {
     Ok(())
 }
 
+// ---- Public API for chunked uploader ----
+
+pub fn create_multipart_upload(cfg: &S3Cfg, key: &str) -> Result<String> {
+    let key = key.trim_start_matches('/');
+    let url = format!("{}://{}/{}?uploads", endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key));
+    let resp = signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])?;
+    if resp.status() / 100 != 2 {
+        bail!("CreateMultipartUpload failed: status={} body={}", resp.status(), resp.body);
+    }
+    parse_xml_tag(&resp.body, "UploadId")
+        .ok_or_else(|| anyhow!("no UploadId in response: {}", resp.body))
+}
+
+pub fn upload_part(cfg: &S3Cfg, key: &str, upload_id: &str, part_number: u32, data: &[u8]) -> Result<String> {
+    let key = key.trim_start_matches('/');
+    let part_url = format!(
+        "{}://{}/{}?partNumber={}&uploadId={}",
+        endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key),
+        part_number, urlencode_query(upload_id),
+    );
+    let q_pairs: Vec<(&str, &str)> = vec![
+        ("partNumber", &part_number.to_string()),
+        ("uploadId", upload_id),
+    ];
+    // Workaround: build owned strings for the borrow checker
+    let pn_str = part_number.to_string();
+    let q: Vec<(&str, &str)> = vec![("partNumber", pn_str.as_str()), ("uploadId", upload_id)];
+    let resp = signed_request(cfg, "PUT", &part_url, &q, &[], data)?;
+    if resp.status() / 100 != 2 {
+        bail!("UploadPart {} failed: status={} body={}", part_number, resp.status(), resp.body);
+    }
+    resp.header("etag")
+        .map(|s| s.trim_matches('"').to_string())
+        .ok_or_else(|| anyhow!("no ETag on UploadPart response"))
+}
+
+pub fn complete_multipart_upload(cfg: &S3Cfg, key: &str, upload_id: &str, etags: &[(u32, String)]) -> Result<()> {
+    let key = key.trim_start_matches('/');
+    let mut body = String::new();
+    body.push_str("<CompleteMultipartUpload>");
+    for (n, e) in etags {
+        body.push_str(&format!("<Part><PartNumber>{n}</PartNumber><ETag>\"{e}\"</ETag></Part>"));
+    }
+    body.push_str("</CompleteMultipartUpload>");
+    let cu = format!(
+        "{}://{}/{}?uploadId={}",
+        endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key), urlencode_query(upload_id),
+    );
+    let resp = signed_request(cfg, "POST", &cu, &[("uploadId", upload_id)], &[], body.as_bytes())?;
+    if resp.status() / 100 != 2 {
+        bail!("CompleteMultipartUpload failed: status={} body={}", resp.status(), resp.body);
+    }
+    Ok(())
+}
+
+pub fn abort_multipart_upload(cfg: &S3Cfg, key: &str, upload_id: &str) -> Result<()> {
+    abort_multipart(cfg, key, upload_id)
+}
+
 fn kms_headers(cfg: &S3Cfg) -> Vec<(String, String)> {
     let mut h = Vec::new();
     if cfg.sse_kms_key_id.is_some() {
