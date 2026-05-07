@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -----------------------------------------------------------------------
+   Theme tokens.
+   The app supports two themes:
+     - "dark"  : the original cyber-aesthetic (default for IR engineers
+                 working in dimly-lit SOCs)
+     - "light" : a professional white/blue/orange palette that mirrors
+                 enterprise dashboard UIs.
+   Switching is done by toggling the `data-theme` attribute on <html>.
+   Components reference these tokens via Tailwind arbitrary-property
+   classes like `bg-[var(--bg-surface)]` so the markup stays clean.
+   ---------------------------------------------------------------------- */
+
+:root[data-theme="dark"] {
+  --bg-base:           #05080d;
+  --bg-page:           #0a0e16;
+  --bg-surface:        rgba(15, 20, 32, 0.6);
+  --bg-surface-solid:  #0f1420;
+  --bg-elevated:       #161d2e;
+  --bg-input:          rgba(5, 8, 13, 0.8);
+
+  --border-default:    rgba(31, 41, 64, 0.6);
+  --border-subtle:     rgba(31, 41, 64, 0.45);
+  --border-strong:     #2d3a55;
+
+  --text-primary:      #f1f5f9;
+  --text-secondary:    #cbd5e1;
+  --text-muted:        #94a3b8;
+  --text-faint:        #64748b;
+  --text-on-accent:    #05080d;
+
+  --accent:            #22d3ee;
+  --accent-hover:      #06b6d4;
+  --accent-bg:         rgba(34, 211, 238, 0.12);
+  --accent-bg-hover:   rgba(34, 211, 238, 0.22);
+  --accent-border:     rgba(34, 211, 238, 0.45);
+  --accent-glow:       0 0 24px -4px rgba(34, 211, 238, 0.4);
+
+  --accent-2:          #f59e0b;       /* amber for secondary highlights */
+  --accent-2-bg:       rgba(245, 158, 11, 0.12);
+  --accent-2-border:   rgba(245, 158, 11, 0.40);
+
+  --success:           #34d399;
+  --success-bg:        rgba(16, 185, 129, 0.12);
+  --warning:           #f59e0b;
+  --warning-bg:        rgba(245, 158, 11, 0.12);
+  --danger:            #f87171;
+  --danger-bg:         rgba(239, 68, 68, 0.12);
+
+  --header-bg:         rgba(10, 14, 22, 0.6);
+  --grid-tint:         rgba(34, 211, 238, 0.04);
+  --code-bg:           rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg-base:           #f6f8fb;       /* off-white, cooler than pure */
+  --bg-page:           #ffffff;
+  --bg-surface:        #ffffff;
+  --bg-surface-solid:  #ffffff;
+  --bg-elevated:       #f1f5f9;
+  --bg-input:          #ffffff;
+
+  --border-default:    #e2e8f0;
+  --border-subtle:     #eef2f7;
+  --border-strong:     #cbd5e1;
+
+  --text-primary:      #0f172a;
+  --text-secondary:    #334155;
+  --text-muted:        #64748b;
+  --text-faint:        #94a3b8;
+  --text-on-accent:    #ffffff;
+
+  --accent:            #2563eb;       /* royal blue */
+  --accent-hover:      #1d4ed8;
+  --accent-bg:         rgba(37, 99, 235, 0.08);
+  --accent-bg-hover:   rgba(37, 99, 235, 0.15);
+  --accent-border:     rgba(37, 99, 235, 0.30);
+  --accent-glow:       0 6px 16px -4px rgba(37, 99, 235, 0.20);
+
+  --accent-2:          #ea580c;       /* orange */
+  --accent-2-bg:       rgba(234, 88, 12, 0.10);
+  --accent-2-border:   rgba(234, 88, 12, 0.30);
+
+  --success:           #16a34a;
+  --success-bg:        rgba(22, 163, 74, 0.10);
+  --warning:           #d97706;
+  --warning-bg:        rgba(217, 119, 6, 0.10);
+  --danger:            #dc2626;
+  --danger-bg:         rgba(220, 38, 38, 0.10);
+
+  --header-bg:         rgba(255, 255, 255, 0.85);
+  --grid-tint:         rgba(37, 99, 235, 0.05);
+  --code-bg:           #f8fafc;
+
+  color-scheme: light;
+}
+
+html, body, #root { height: 100%; font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(ellipse at top left,  rgba(34, 211, 238, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(56, 189, 248, 0.04) 0%, transparent 60%),
+    #05080d;
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse at top left,  rgba(37, 99, 235, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(234, 88, 12, 0.03) 0%, transparent 60%),
+    #f6f8fb;
+}
+
+.cyber-grid {
+  background-image:
+    linear-gradient(var(--grid-tint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-tint) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-track { background: #0a0e16; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #1f2940; border-radius: 4px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #2d3a55; }
+:root[data-theme="light"] ::-webkit-scrollbar-track { background: #f1f5f9; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+pre, code, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* Semantic utility classes for components ---------------------------------- */
+@layer components {
+  .surface { background-color: var(--bg-surface); border-color: var(--border-default); }
+  .surface-solid { background-color: var(--bg-surface-solid); }
+  .surface-elevated { background-color: var(--bg-elevated); }
+
+  .btn-primary {
+    background-color: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    color: var(--accent);
+    transition: all 0.15s ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--accent-bg-hover);
+    box-shadow: var(--accent-glow);
+  }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-secondary {
+    background-color: var(--accent-2-bg);
+    border: 1px solid var(--accent-2-border);
+    color: var(--accent-2);
+    transition: all 0.15s ease;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--accent-2-bg);
+    filter: brightness(1.1);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "build_id": "placeholder",
+  "build_timestamp": "1970-01-01T00:00:00Z",
+  "site_code": "PLACEHOLDER",
+  "filename_template": "%FQDN%-%TIMESTAMP%-%UUID%",
+  "require_admin": true,
+  "delete_after_upload": true,
+  "silent": true,
+  "use_vss": true,
+  "max_collection_size_gb": 0,
+  "cpu_limit_percent": 0,
+  "concurrency": 2,
+  "progress_timeout_seconds": 3600,
+  "output_format": "jsonl",
+  "artifacts": [],
+  "kape_targets": [],
+  "encryption": {
+    "scheme": "none",
+    "rsa_public_key_pem": ""
+  },
+  "upload": {
+    "kind": "local",
+    "local_path": "C:\\IR\\Output",
+    "s3": null
+  }
+}

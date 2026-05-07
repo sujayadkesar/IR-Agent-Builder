@@ -1,0 +1,80 @@
+[package]
+name = "dfir-collector"
+version = "1.0.0"
+edition = "2021"
+authors = ["DFIR Engineering"]
+description = "Single-shot DFIR triage collector — admin-elevated forensic acquisition with AWS S3 / local upload"
+
+[[bin]]
+name = "Collector"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dependencies]
+# Embedded config (the build server writes this file before `cargo build`)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+log = "0.4"
+fern = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Compression / archive container
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+flate2 = "1"
+
+# Crypto: AES-256-GCM + RSA-4096 hybrid (X509-style)
+aes-gcm = "0.10"
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+base64 = "0.22"
+
+# AWS S3 upload (multipart aware) — using rusoto-style minimal stack via `aws-sdk-s3`
+# We use a vetted minimal HTTP+sigv4 implementation to keep binary small
+ureq = { version = "2.10", features = ["tls", "json"] }
+url = "2"
+hmac = "0.12"
+md-5 = "0.10"
+
+# Windows API + filesystem
+walkdir = "2"
+glob = "0.3"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+hostname = "0.4"
+dirs = "5"
+
+# Raw NTFS parser — used as a universal fallback when files are locked by
+# the OS (registry hives, $MFT, $UsnJrnl, etc.). Bypasses file-system locks
+# by reading the raw volume device. Same approach Velociraptor uses.
+ntfs = "0.4"
+
+# Errors
+anyhow = "1"
+thiserror = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+] }
+
+[target.'cfg(windows)'.build-dependencies]
+embed-manifest = "1.4"

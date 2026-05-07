@@ -1,0 +1,19 @@
+{
+  "name": "dfir-agentbuilder-server",
+  "version": "1.0.0",
+  "description": "Build orchestration backend for the DFIR Agent Builder",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0",
+    "node-forge": "^1.3.1",
+    "uuid": "^10.0.0",
+    "better-sqlite3": "^11.3.0"
+  }
+}
