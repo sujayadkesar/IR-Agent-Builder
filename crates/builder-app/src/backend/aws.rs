@@ -67,7 +67,7 @@ pub struct ValidateResult {
     pub test_key: String,
 }
 
-/// Send a small (16 byte) PutObject to a sentinel key to confirm
+/// Send a small (30 byte) PutObject to a sentinel key to confirm
 /// credentials/bucket policy/encryption settings are correct.
 pub fn validate_s3(input: ValidateInput<'_>) -> Result<ValidateResult> {
     let test_key = format!(
@@ -89,15 +89,23 @@ pub fn validate_s3(input: ValidateInput<'_>) -> Result<ValidateResult> {
     } else {
         "https"
     };
-    let url = format!("{scheme}://{host}/{}", uri_encode_path(&test_key));
+    let (url, canonical_uri) = if input.endpoint.is_some() {
+        (
+            format!("{scheme}://{host}/{}/{}", input.bucket, uri_encode_path(&test_key)),
+            format!("/{}/{}", input.bucket, uri_encode_path(&test_key)),
+        )
+    } else {
+        (
+            format!("{scheme}://{host}/{}", uri_encode_path(&test_key)),
+            format!("/{}", uri_encode_path(&test_key)),
+        )
+    };
 
     let mut extra: Vec<(&str, &str)> = Vec::new();
     if let Some(kms) = input.sse_kms_key_id {
         extra.push(("x-amz-server-side-encryption", "aws:kms"));
         extra.push(("x-amz-server-side-encryption-aws-kms-key-id", kms));
     }
-
-    let canonical_uri = format!("/{}", uri_encode_path(&test_key));
     let signed = sign(&SignParams {
         method: "PUT",
         host: &host,

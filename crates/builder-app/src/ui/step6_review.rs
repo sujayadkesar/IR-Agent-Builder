@@ -419,7 +419,11 @@ fn preview_filename(app: &App) -> String {
     if app.spec.filename_template.is_empty() {
         return stem.to_string();
     }
-    format!("DFIR-{}-{stem}", app.spec.site_code)
+    app.spec.filename_template
+        .replace("%SITE%", &app.spec.site_code)
+        .replace("%FQDN%", "<FQDN>")
+        .replace("%TIMESTAMP%", "<TIMESTAMP>")
+        .replace("%UUID%", "<UUID>")
 }
 
 fn validate(app: &App) -> Vec<String> {
@@ -468,15 +472,36 @@ const LOCKED_ARTIFACTS: &[&str] = &[
 
 #[cfg(target_os = "windows")]
 fn reveal_in_explorer(path: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+
+    if !is_within_output_root(path) {
+        return;
+    }
+
+    let mut arg = std::ffi::OsString::from("/select,");
+    arg.push(path.as_os_str());
+
     let _ = std::process::Command::new("explorer.exe")
-        .arg("/select,")
-        .arg(path)
+        .raw_arg(arg)
         .spawn();
 }
 
 #[cfg(not(target_os = "windows"))]
 fn reveal_in_explorer(path: &std::path::Path) {
+    if !is_within_output_root(path) {
+        return;
+    }
     if let Some(dir) = path.parent() {
         let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
     }
+}
+
+fn is_within_output_root(path: &std::path::Path) -> bool {
+    let Ok(canonical) = path.canonicalize() else {
+        return false;
+    };
+    let Ok(output_root) = crate::app::build_output_dir().canonicalize() else {
+        return false;
+    };
+    canonical.starts_with(output_root)
 }

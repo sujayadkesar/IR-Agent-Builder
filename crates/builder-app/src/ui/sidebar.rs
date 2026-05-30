@@ -54,7 +54,29 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
         .rounding(egui::Rounding::same(6.0))
         .min_size(egui::vec2(ui.available_width(), 32.0));
         if ui.add(btn).clicked() {
-            let _ = export_summary(&app.spec);
+            match rfd::FileDialog::new()
+                .set_file_name("dfir-summary.json")
+                .add_filter("JSON", &["json"])
+                .save_file()
+            {
+                Some(path) => {
+                    let json = serde_json::to_string_pretty(&app.spec).unwrap_or_default();
+                    if let Err(e) = std::fs::write(&path, json) {
+                        app.export_error = Some(format!(
+                            "Export failed ({}): {}",
+                            path.display(),
+                            e
+                        ));
+                    } else {
+                        app.export_error = None;
+                    }
+                }
+                None => {}
+            }
+        }
+        if let Some(ref msg) = app.export_error {
+            ui.add_space(4.0);
+            ui.colored_label(egui::Color32::from_rgb(220, 80, 80), msg);
         }
     });
 }
@@ -250,9 +272,4 @@ fn format_time(secs: u64) -> String {
     let m = (secs % 3600) / 60;
     let s = secs % 60;
     format!("{h:02}:{m:02}:{s:02}")
-}
-
-fn export_summary(spec: &BuildSpec) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(spec).unwrap_or_default();
-    std::fs::write("dfir-summary.json", json)
 }

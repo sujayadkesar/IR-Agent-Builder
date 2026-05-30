@@ -25,13 +25,14 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
 
     ui.add_space(20.0);
 
-    let has_key = !app.spec.encryption.public_key_pem.is_empty();
     let busy = app.keypair_job.is_some();
+
+    let has_public_key = !app.spec.encryption.public_key_pem.is_empty();
 
     ui.horizontal(|ui| {
         let label = if busy {
             "Generating…"
-        } else if has_key {
+        } else if has_public_key {
             "Regenerate RSA-4096 keypair"
         } else {
             "Generate RSA-4096 keypair"
@@ -40,7 +41,7 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
             let ctx = ui.ctx().clone();
             app.start_keypair_generation(4096, ctx);
         }
-        if has_key {
+        if has_public_key {
             ui.label(
                 egui::RichText::new(format!("fingerprint = {}", short_fp(&app.spec.encryption.fingerprint_sha256)))
                     .monospace()
@@ -58,6 +59,7 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
                 .small()
                 .color(theme::MUTED),
         );
+        ui.ctx().request_repaint();
     }
 
     ui.add_space(20.0);
@@ -78,7 +80,7 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
             .hint_text("-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY-----"),
     );
 
-    if has_key && !app.spec.encryption.private_key_pem.is_empty() {
+    if app.keypair_generated_this_session && !app.spec.encryption.private_key_pem.is_empty() {
         ui.add_space(16.0);
         ui.colored_label(
             theme::DANGER,
@@ -92,8 +94,9 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
         );
         if ui.button("I have saved the private key — clear from memory").clicked() {
             app.spec.encryption.private_key_pem.clear();
+            app.keypair_generated_this_session = false;
         }
-    } else if has_key {
+    } else if app.keypair_generated_this_session {
         ui.add_space(8.0);
         ui.colored_label(theme::SUCCESS, "Private key was discarded from memory. Make sure you saved it.");
     }

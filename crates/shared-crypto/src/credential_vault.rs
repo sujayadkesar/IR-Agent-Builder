@@ -7,8 +7,8 @@
 //! [8B  "DFIRV001" marker]
 //! [12B AES-GCM nonce]
 //! [8B  frag1]   ┐
-//! [8B  frag2]   │  AES-256 key, split into 4 fragments,
-//! [8B  frag3]   │  each XOR'd with sha256(build_id:build_timestamp)[..8]
+//! [8B  frag2]   │  AES-256 key, split into 4 fragments, each XOR'd with
+//! [8B  frag3]   │  a distinct 8-byte window of sha256(build_id:build_timestamp)
 //! [8B  frag4]   ┘
 //! [ciphertext + 16B AES-GCM tag]
 //! ```
@@ -23,6 +23,7 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 pub const VAULT_MARKER: &[u8; 8] = b"DFIRV001";
 
@@ -53,7 +54,6 @@ pub fn encrypt(
 
     let derivation = format!("{build_id}:{build_timestamp}");
     let master_hash = Sha256::digest(derivation.as_bytes());
-    let xor_key = &master_hash[..8];
 
     let mut aes_key = [0u8; 32];
     let mut nonce_bytes = [0u8; 12];
@@ -69,10 +69,10 @@ pub fn encrypt(
 
     let mut frags = [[0u8; 8]; 4];
     for i in 0..8 {
-        frags[0][i] = aes_key[i] ^ xor_key[i];
-        frags[1][i] = aes_key[8 + i] ^ xor_key[i];
-        frags[2][i] = aes_key[16 + i] ^ xor_key[i];
-        frags[3][i] = aes_key[24 + i] ^ xor_key[i];
+        frags[0][i] = aes_key[i] ^ master_hash[i];
+        frags[1][i] = aes_key[8 + i] ^ master_hash[8 + i];
+        frags[2][i] = aes_key[16 + i] ^ master_hash[16 + i];
+        frags[3][i] = aes_key[24 + i] ^ master_hash[24 + i];
     }
 
     let mut blob = Vec::with_capacity(8 + 12 + 32 + ciphertext.len());
@@ -94,7 +94,8 @@ pub fn encrypt(
         blob,
     };
 
-    aes_key.fill(0);
+    aes_key.zeroize();
+    frags.zeroize();
     Ok(result)
 }
 
@@ -115,7 +116,6 @@ pub fn decrypt(
 
     let derivation = format!("{build_id}:{build_timestamp}");
     let master_hash = Sha256::digest(derivation.as_bytes());
-    let xor_key = &master_hash[..8];
 
     let nonce_bytes = &payload[0..12];
     let frag1 = &payload[12..20];
@@ -126,10 +126,10 @@ pub fn decrypt(
 
     let mut aes_key = [0u8; 32];
     for i in 0..8 {
-        aes_key[i] = frag1[i] ^ xor_key[i];
-        aes_key[8 + i] = frag2[i] ^ xor_key[i];
-        aes_key[16 + i] = frag3[i] ^ xor_key[i];
-        aes_key[24 + i] = frag4[i] ^ xor_key[i];
+        aes_key[i] = frag1[i] ^ master_hash[i];
+        aes_key[8 + i] = frag2[i] ^ master_hash[8 + i];
+        aes_key[16 + i] = frag3[i] ^ master_hash[16 + i];
+        aes_key[24 + i] = frag4[i] ^ master_hash[24 + i];
     }
 
     let cipher = Aes256Gcm::new_from_slice(&aes_key)
@@ -138,7 +138,7 @@ pub fn decrypt(
         .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
         .map_err(|e| anyhow!("AES-GCM decrypt: {e}"))?;
 
-    aes_key.fill(0);
+    aes_key.zeroize();
 
     let v: serde_json::Value =
         serde_json::from_slice(&plain).context("vault plaintext is not JSON")?;

@@ -35,6 +35,13 @@ pub struct App {
     /// Workspace root (where Cargo.toml lives).
     pub workspace_root: PathBuf,
 
+    /// Set to true after a keypair is generated this session; cleared when the
+    /// user clicks "I have saved the private key".
+    pub keypair_generated_this_session: bool,
+
+    /// Last error from the Export Summary action in the sidebar.
+    pub export_error: Option<String>,
+
     last_persisted_hash: u64,
 }
 
@@ -99,6 +106,8 @@ impl App {
             s3_validate_job: None,
             s3_validate_last: None,
             workspace_root,
+            keypair_generated_this_session: false,
+            export_error: None,
             last_persisted_hash,
         }
     }
@@ -108,7 +117,10 @@ impl App {
         if h == self.last_persisted_hash {
             return;
         }
-        if let Ok(json) = serde_json::to_string_pretty(&self.spec) {
+        let mut spec_to_persist = self.spec.clone();
+        spec_to_persist.upload.secret_access_key = String::new();
+        spec_to_persist.encryption.private_key_pem = String::new();
+        if let Ok(json) = serde_json::to_string_pretty(&spec_to_persist) {
             if std::fs::write(DEV_STATE_FILE, json).is_ok() {
                 self.last_persisted_hash = h;
             }
@@ -134,7 +146,13 @@ impl App {
                     live.logs.push(format!("[builder] FAILED: {message}"));
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    if live.status == BuildStatus::Running {
+                        live.status = BuildStatus::Failed("build thread disconnected unexpectedly".into());
+                        live.logs.push("[builder] thread died without sending a result".into());
+                    }
+                    break;
+                }
             }
         }
     }
@@ -174,6 +192,7 @@ impl App {
                 self.spec.encryption.public_key_pem = kp.public_pem;
                 self.spec.encryption.private_key_pem = kp.private_pem;
                 self.spec.encryption.fingerprint_sha256 = kp.fingerprint_sha256;
+                self.keypair_generated_this_session = true;
                 self.keypair_job = None;
             }
             Ok(Err(e)) => {
@@ -251,6 +270,10 @@ impl App {
     }
 }
 
+pub fn build_output_dir() -> PathBuf {
+    detect_workspace_root().join("builds")
+}
+
 fn detect_workspace_root() -> PathBuf {
     // The binary is at <root>/target/debug/builder-app.exe or
     // <root>/target/release/builder-app.exe. Walk up from the executable
@@ -258,7 +281,7 @@ fn detect_workspace_root() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let mut cur = exe.parent().map(|p| p.to_path_buf());
         while let Some(p) = cur {
-            if p.join("Cargo.toml").exists() && p.join("artifacts").exists() {
+            if std::fs::read_to_string(p.join("Cargo.toml")).map_or(false, |s| s.contains("[workspace]")) && p.join("artifacts").exists() {
                 return p;
             }
             cur = p.parent().map(|p| p.to_path_buf());

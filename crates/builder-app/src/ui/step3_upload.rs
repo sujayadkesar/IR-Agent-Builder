@@ -117,6 +117,7 @@ fn s3_form(ui: &mut egui::Ui, app: &mut App) {
                 .small()
                 .color(theme::MUTED),
         );
+        ui.ctx().request_repaint();
     }
     // Last completed result — survives navigation away from this step.
     if app.s3_validate_job.is_none() {
@@ -150,10 +151,12 @@ fn s3_form(ui: &mut egui::Ui, app: &mut App) {
         None,
     );
     let policy_json = serde_json::to_string_pretty(&policy).unwrap_or_default();
+    let mut policy_display = policy_json.clone();
     ui.add(
-        egui::TextEdit::multiline(&mut policy_json.clone())
+        egui::TextEdit::multiline(&mut policy_display)
             .desired_width(f32::INFINITY)
             .desired_rows(14)
-            .font(egui::TextStyle::Monospace),
+            .font(egui::TextStyle::Monospace)
+            .interactive(false),
     );
 }
