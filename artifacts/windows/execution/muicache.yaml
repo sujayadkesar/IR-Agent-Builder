@@ -1,0 +1,18 @@
+name: windows.execution.muicache
+display: MUICache
+description: >
+  Historical GUI program names — survives Prefetch clears. Stored in
+  HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache.
+platform: windows
+type: registry
+category: Evidence of Execution
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 2
+
+sources:
+  - type: registry
+    hives: ["HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache"]
+    method: reg_export

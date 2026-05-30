@@ -1,0 +1,41 @@
+name: linux.logs.syslog
+display: Syslog / Journal
+description: >
+  System logs from /var/log/syslog, /var/log/messages, and systemd journal.
+  The primary log source on most Linux distributions.
+platform: linux
+type: composite
+category: System Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 200
+time_sec: 30
+
+params:
+  - key: journal_days
+    label: Journal history (days)
+    type: number
+    default: 30
+    min: 1
+    max: 365
+    suffix: days
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "var/log/syslog"
+      - "var/log/syslog.*"
+      - "var/log/messages"
+      - "var/log/messages.*"
+      - "var/log/kern.log"
+      - "var/log/kern.log.*"
+      - "var/log/daemon.log"
+      - "var/log/daemon.log.*"
+  - type: command
+    cmd: journalctl
+    args: ["--no-pager", "--since", "{{journal_days}} days ago", "--output", "json"]
+    output_file: journal.json
+    bash: true
+    timeout_sec: 120

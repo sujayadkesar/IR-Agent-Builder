@@ -1,0 +1,31 @@
+name: linux.persistence.crontabs
+display: Cron Jobs
+description: >
+  All crontab files — system-wide, per-user, cron.d, and anacron. Primary
+  persistence mechanism on Linux systems.
+platform: linux
+type: composite
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 2
+time_sec: 5
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/crontab"
+      - "etc/cron.d/*"
+      - "etc/cron.daily/*"
+      - "etc/cron.hourly/*"
+      - "etc/cron.weekly/*"
+      - "etc/cron.monthly/*"
+      - "etc/anacrontab"
+      - "var/spool/cron/crontabs/*"
+      - "var/spool/cron/*"
+  - type: command
+    cmd: bash
+    args: ["-c", "for user in $(cut -f1 -d: /etc/passwd); do echo \"=== $user ===\"; crontab -l -u $user 2>/dev/null; done"]
+    output_file: user_crontabs.txt
+    bash: true

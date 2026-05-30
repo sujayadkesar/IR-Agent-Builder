@@ -1,0 +1,37 @@
+name: linux.browser.chrome
+display: Chrome (Linux)
+description: "Chrome/Chromium browser data on Linux."
+platform: linux
+type: file_pattern
+category: Browser
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 200
+time_sec: 30
+params:
+  - key: scope
+    label: Collection scope
+    type: select
+    default: standard
+    options:
+      - { value: minimal, label: "History only", size_mul: 0.25 }
+      - { value: standard, label: "Standard forensic set", size_mul: 1.0 }
+      - { value: full, label: "Full User Data", size_mul: 10.0 }
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "home/*/.config/google-chrome/Default/History"
+      - "home/*/.config/google-chrome/Default/Cookies"
+      - "home/*/.config/google-chrome/Default/Login Data"
+      - "home/*/.config/google-chrome/Default/Web Data"
+      - "home/*/.config/google-chrome/Default/Bookmarks"
+      - "home/*/.config/google-chrome/Default/Preferences"
+      - "home/*/.config/google-chrome/Local State"
+      - "home/*/.config/chromium/Default/History"
+      - "home/*/.config/chromium/Default/Cookies"
+      - "home/*/.config/chromium/Default/Login Data"
+      - "home/*/.config/chromium/Default/Web Data"
+      - "home/*/.config/chromium/Default/Bookmarks"
+      - "home/*/.config/chromium/Local State"

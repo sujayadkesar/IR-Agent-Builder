@@ -1,0 +1,41 @@
+name: linux.persistence.systemd
+display: Systemd Services & Timers
+description: >
+  Systemd unit files — services, timers, socket activations. Attackers create
+  malicious .service files for persistence. Includes both system and user units.
+platform: linux
+type: composite
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 10
+time_sec: 10
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/systemd/system/**/*.service"
+      - "etc/systemd/system/**/*.timer"
+      - "etc/systemd/system/**/*.socket"
+      - "usr/lib/systemd/system/**/*.service"
+      - "usr/lib/systemd/system/**/*.timer"
+      - "home/*/.config/systemd/user/**/*.service"
+      - "root/.config/systemd/user/**/*.service"
+      - "run/systemd/generator/**/*"
+      - "run/systemd/generator.late/**/*"
+  - type: command
+    cmd: systemctl
+    args: ["list-units", "--all", "--no-pager"]
+    output_file: systemctl_units.txt
+    bash: true
+  - type: command
+    cmd: systemctl
+    args: ["list-timers", "--all", "--no-pager"]
+    output_file: systemctl_timers.txt
+    bash: true
+  - type: command
+    cmd: systemctl
+    args: ["list-unit-files", "--no-pager"]
+    output_file: systemctl_unit_files.txt
+    bash: true

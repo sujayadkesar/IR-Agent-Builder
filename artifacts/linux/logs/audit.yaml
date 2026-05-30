@@ -1,0 +1,29 @@
+name: linux.logs.audit
+display: Audit Logs (auditd)
+description: >
+  Linux Audit Framework logs — syscall auditing, file access, execve events.
+  If auditd is configured, this is the richest forensic log source on Linux.
+platform: linux
+type: composite
+category: System Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 100
+time_sec: 15
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "var/log/audit/audit.log"
+      - "var/log/audit/audit.log.*"
+      - "etc/audit/auditd.conf"
+      - "etc/audit/audit.rules"
+      - "etc/audit/rules.d/*"
+  - type: command
+    cmd: auditctl
+    args: ["-l"]
+    output_file: auditctl_rules.txt
+    bash: true
+    timeout_sec: 15

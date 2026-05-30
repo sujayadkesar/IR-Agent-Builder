@@ -1,0 +1,22 @@
+name: windows.filesystem.lnk
+display: LNK + Jump Lists
+description: >
+  Windows shortcut files (.lnk) and Jump Lists — proves file access including
+  network shares, tracks recently used documents, and contains MAC timestamps
+  of target files.
+platform: windows
+type: file_pattern
+category: File System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 25
+time_sec: 10
+
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/*.lnk"
+      - "Users/*/AppData/Roaming/Microsoft/Office/Recent/*.lnk"
+      - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/*"
+      - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/CustomDestinations/*"

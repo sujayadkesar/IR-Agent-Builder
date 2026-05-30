@@ -1,0 +1,29 @@
+name: windows.execution.amcache
+display: Amcache
+description: >
+  Amcache.hve tracks first-execution records with SHA1 hashes for every executable
+  that has run on the system. Critical for detecting malware execution even after
+  the binary has been deleted. Includes both reg-save of live hive and file copy
+  of transaction logs.
+platform: windows
+type: composite
+category: Evidence of Execution
+author: DFIR Engineering
+version: "1.0.0"
+references:
+  - https://www.ssi.gouv.fr/uploads/2019/01/anssi-coriin_2019-amcache.pdf
+deps: [ADMIN]
+size_mb: 25
+time_sec: 10
+
+sources:
+  - type: registry
+    hives: ["HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags"]
+    method: reg_save
+    output_name: amcache_live
+  - type: file_pattern
+    globs:
+      - "Windows/AppCompat/Programs/Amcache.hve"
+      - "Windows/AppCompat/Programs/Amcache.hve.LOG1"
+      - "Windows/AppCompat/Programs/Amcache.hve.LOG2"
+      - "Windows/AppCompat/Programs/RecentFileCache.bcf"

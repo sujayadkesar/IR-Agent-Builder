@@ -1,0 +1,17 @@
+name: windows.live.systeminfo
+display: System Info
+description: "systeminfo — OS version, hotfixes, network adapters, domain membership."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 5
+sources:
+  - type: command
+    cmd: systeminfo
+    args: []
+    output_file: systeminfo.txt
+    timeout_sec: 60

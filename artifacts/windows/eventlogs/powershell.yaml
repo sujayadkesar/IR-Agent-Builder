@@ -1,0 +1,18 @@
+name: windows.eventlogs.powershell
+display: PowerShell Logs
+description: >
+  PowerShell script block logging (4104), module logging, transcripts.
+  Critical for detecting fileless malware and LOLBin abuse.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 100
+time_sec: 20
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-PowerShell*.evtx"
+      - "Windows/System32/winevt/Logs/Windows PowerShell.evtx"

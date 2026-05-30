@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="ui-sans-serif, system-ui, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0a0e16"/>
+      <stop offset="100%" stop-color="#05080d"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" x2="1">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.05"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee"/>
+    </marker>
+  </defs>
+  <rect width="900" height="500" fill="url(#bg)"/>
+
+  <!-- Build host area -->
+  <rect x="30" y="40" width="600" height="240" rx="10" fill="#0f1420" stroke="#1f2940"/>
+  <text x="50" y="65" fill="#94a3b8" font-size="11" letter-spacing="2">BUILD HOST (IR engineer's workstation)</text>
+
+  <!-- UI box -->
+  <rect x="60" y="90" width="200" height="120" rx="8" fill="#161d2e" stroke="url(#cyan)" stroke-width="1.5"/>
+  <text x="80" y="115" fill="#e2e8f0" font-size="14" font-weight="600">React + Vite UI</text>
+  <text x="80" y="135" fill="#94a3b8" font-size="11">6-step wizard</text>
+  <text x="80" y="152" fill="#94a3b8" font-size="11">Bundle presets</text>
+  <text x="80" y="169" fill="#94a3b8" font-size="11">Live size/time totals</text>
+  <text x="80" y="186" fill="#94a3b8" font-size="11">AWS validator + IAM gen</text>
+
+  <!-- Backend -->
+  <rect x="320" y="90" width="200" height="120" rx="8" fill="#161d2e" stroke="url(#cyan)" stroke-width="1.5"/>
+  <text x="340" y="115" fill="#e2e8f0" font-size="14" font-weight="600">Node Express</text>
+  <text x="340" y="135" fill="#94a3b8" font-size="11">RSA-4096 keypair gen</text>
+  <text x="340" y="152" fill="#94a3b8" font-size="11">SigV4 S3 validator</text>
+  <text x="340" y="169" fill="#94a3b8" font-size="11">cargo build orchestrator</text>
+  <text x="340" y="186" fill="#94a3b8" font-size="11">SSE log streaming</text>
+
+  <!-- Audit -->
+  <rect x="540" y="90" width="80" height="60" rx="6" fill="#0a0e16" stroke="#2d3a55"/>
+  <text x="555" y="113" fill="#94a3b8" font-size="11">SQLite</text>
+  <text x="555" y="130" fill="#64748b" font-size="10">audit ledger</text>
+
+  <!-- Build output -->
+  <rect x="540" y="160" width="80" height="50" rx="6" fill="#0a0e16" stroke="#2d3a55"/>
+  <text x="556" y="180" fill="#94a3b8" font-size="11">builds/</text>
+  <text x="554" y="195" fill="#64748b" font-size="10">.exe + meta</text>
+
+  <!-- Arrows -->
+  <line x1="265" y1="150" x2="315" y2="150" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="262" y="142" fill="#22d3ee" font-size="10">REST/SSE</text>
+
+  <line x1="525" y1="120" x2="538" y2="120" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="525" y1="180" x2="538" y2="180" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Compiles to -->
+  <line x1="420" y1="215" x2="420" y2="290" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="4,4"/>
+  <text x="430" y="255" fill="#22d3ee" font-size="11">cargo build --release</text>
+  <text x="430" y="270" fill="#64748b" font-size="10">embeds JSON config</text>
+
+  <!-- Collector EXE box -->
+  <rect x="240" y="300" width="420" height="170" rx="10" fill="#0f1420" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="260" y="325" fill="#22d3ee" font-size="11" letter-spacing="2">COLLECTOR.EXE  (Rust, single binary)</text>
+
+  <text x="260" y="350" fill="#e2e8f0" font-size="13" font-weight="600">On endpoint:</text>
+  <text x="260" y="370" fill="#cbd5e1" font-size="11">1. Admin check (manifest forces UAC)</text>
+  <text x="260" y="385" fill="#cbd5e1" font-size="11">2. VSS snapshot of C:\</text>
+  <text x="260" y="400" fill="#cbd5e1" font-size="11">3. Run artifact modules (Prefetch, Registry, EVTX, MFT, ...)</text>
+  <text x="260" y="415" fill="#cbd5e1" font-size="11">4. ZIP + AES-256-GCM encrypt with RSA-OAEP wrapped key</text>
+  <text x="260" y="430" fill="#cbd5e1" font-size="11">5. Upload — S3 multipart (SSE-KMS) or local UNC</text>
+  <text x="260" y="445" fill="#cbd5e1" font-size="11">6. Secure delete + exit</text>
+
+  <!-- Endpoints / GPO -->
+  <rect x="700" y="40" width="170" height="430" rx="10" fill="#0f1420" stroke="#1f2940"/>
+  <text x="720" y="65" fill="#94a3b8" font-size="11" letter-spacing="2">ENDPOINTS</text>
+  <text x="720" y="92" fill="#94a3b8" font-size="11">GPO startup script</text>
+  <text x="720" y="108" fill="#94a3b8" font-size="11">SCCM / Intune</text>
+
+  <g transform="translate(720,130)">
+    <rect width="130" height="42" rx="4" fill="#161d2e" stroke="#2d3a55"/>
+    <text x="10" y="20" fill="#e2e8f0" font-size="11">LAPTOP-A</text>
+    <text x="10" y="34" fill="#64748b" font-size="9">collector → S3</text>
+  </g>
+  <g transform="translate(720,180)">
+    <rect width="130" height="42" rx="4" fill="#161d2e" stroke="#2d3a55"/>
+    <text x="10" y="20" fill="#e2e8f0" font-size="11">DC-01</text>
+    <text x="10" y="34" fill="#64748b" font-size="9">collector → S3</text>
+  </g>
+  <g transform="translate(720,230)">
+    <rect width="130" height="42" rx="4" fill="#161d2e" stroke="#2d3a55"/>
+    <text x="10" y="20" fill="#e2e8f0" font-size="11">FILE-SRV</text>
+    <text x="10" y="34" fill="#64748b" font-size="9">collector → S3</text>
+  </g>
+  <g transform="translate(720,280)">
+    <rect width="130" height="42" rx="4" fill="#161d2e" stroke="#2d3a55"/>
+    <text x="10" y="20" fill="#e2e8f0" font-size="11">… ×1000</text>
+    <text x="10" y="34" fill="#64748b" font-size="9">parallel</text>
+  </g>
+
+  <!-- S3 -->
+  <g transform="translate(740,360)">
+    <rect width="100" height="80" rx="8" fill="#161d2e" stroke="url(#cyan)" stroke-width="1.5"/>
+    <text x="14" y="22" fill="#22d3ee" font-size="12" font-weight="600">AWS S3</text>
+    <text x="14" y="40" fill="#94a3b8" font-size="9">SSE-KMS</text>
+    <text x="14" y="55" fill="#94a3b8" font-size="9">Object Lock</text>
+    <text x="14" y="70" fill="#94a3b8" font-size="9">write-only IAM</text>
+  </g>
+
+  <!-- Endpoint to S3 lines -->
+  <line x1="720" y1="151" x2="700" y2="385" stroke="#22d3ee" stroke-width="0.8" stroke-opacity="0.5"/>
+  <line x1="720" y1="201" x2="700" y2="395" stroke="#22d3ee" stroke-width="0.8" stroke-opacity="0.5"/>
+  <line x1="720" y1="251" x2="700" y2="405" stroke="#22d3ee" stroke-width="0.8" stroke-opacity="0.5"/>
+</svg>

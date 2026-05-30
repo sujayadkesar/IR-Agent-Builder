@@ -1,0 +1,27 @@
+name: linux.network.processes
+display: Process List
+description: "Full process listing with command lines, users, and open files."
+platform: linux
+type: command
+category: Network & Live
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 2
+time_sec: 10
+sources:
+  - type: command
+    cmd: ps
+    args: ["auxwwf"]
+    output_file: ps_aux.txt
+    bash: true
+  - type: command
+    cmd: ls
+    args: ["-la", "/proc/*/exe"]
+    output_file: proc_exe_links.txt
+    bash: true
+  - type: command
+    cmd: ls
+    args: ["-la", "/proc/*/fd/"]
+    output_file: proc_fd.txt
+    bash: true

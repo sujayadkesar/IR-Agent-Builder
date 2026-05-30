@@ -1,0 +1,19 @@
+name: windows.memory.fulldump
+display: Full RAM Dump (winpmem)
+description: >
+  Full physical memory image via winpmem driver. 8-32GB output depending on
+  system RAM. Requires winpmem.exe alongside collector binary.
+platform: windows
+type: command
+category: Memory
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN, WINPMEM]
+size_mb: 16000
+time_sec: 600
+sources:
+  - type: command
+    cmd: winpmem
+    args: ["--output", "{{scratch}}/memory.raw", "--format", "raw"]
+    output_file: memory.raw
+    timeout_sec: 1800

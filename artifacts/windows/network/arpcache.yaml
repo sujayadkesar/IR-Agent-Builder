@@ -1,0 +1,17 @@
+name: windows.live.arpcache
+display: ARP Cache
+description: "arp -a — current MAC/IP table for network mapping."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 1
+sources:
+  - type: command
+    cmd: arp
+    args: ["-a"]
+    output_file: arp.txt
+    timeout_sec: 15

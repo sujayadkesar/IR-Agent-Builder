@@ -1,0 +1,15 @@
+name: windows.eventlogs.bits
+display: BITS Activity
+description: Background Intelligent Transfer Service jobs — LOLBin for stealthy file downloads.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 5
+time_sec: 3
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-Bits-Client*.evtx"

@@ -1,0 +1,22 @@
+name: windows.live.services
+display: Services
+description: "Enumerated Windows services — detect malicious service installs."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 5
+sources:
+  - type: command
+    cmd: sc
+    args: ["query", "type=", "service", "state=", "all"]
+    output_file: services.txt
+    timeout_sec: 30
+  - type: command
+    cmd: wmic
+    args: ["service", "get", "name,displayname,pathname,startname,startmode,state", "/format:csv"]
+    output_file: services.csv
+    timeout_sec: 30

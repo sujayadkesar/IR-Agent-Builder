@@ -1,0 +1,56 @@
+# DFIR AgentBuilder — Artifact Definition Schema
+# ================================================
+# Each .yaml file in this tree defines one collectible artifact.
+# Inspired by Velociraptor VQL artifacts and KAPE .tkape targets.
+#
+# REQUIRED fields:
+#   name        — unique dotted identifier (e.g. windows.execution.prefetch)
+#   display     — human-readable name shown in the UI
+#   description — what this artifact collects and why it matters forensically
+#   platform    — "windows" | "linux" | "all"
+#   type        — "file_pattern" | "command" | "registry" | "raw_ntfs" | "composite"
+#   category    — grouping in the UI sidebar
+#
+# OPTIONAL fields:
+#   author      — who wrote this definition
+#   version     — semver of the artifact definition
+#   references  — list of URLs for further reading
+#   deps        — list of dependency tags: ADMIN, VSS, SYSMON, WINPMEM, ROOT
+#   size_mb     — estimated output size in MB
+#   time_sec    — estimated collection time in seconds
+#   params      — list of user-configurable parameters (select, number, boolean)
+#   sources     — list of collection sources (the actual work)
+#
+# SOURCE types:
+#
+#   file_pattern:
+#     globs: ["Windows/Prefetch/*.pf", "Windows/Prefetch/**/*.pf"]
+#     base:  "%SYSTEMDRIVE%"    # default: collect_root
+#     recursive: true           # default: false
+#
+#   command:
+#     cmd: "netstat"
+#     args: ["-anob"]
+#     output_file: "netstat.txt"
+#     shell: false              # default: false (direct exec)
+#     powershell: false         # default: false
+#     bash: false               # default: false (Linux)
+#     timeout_sec: 60           # default: 120
+#     parse_format: "csv" | "json" | "text"  # optional
+#
+#   registry:
+#     hives: ["HKLM\\SYSTEM", "HKLM\\SAM"]
+#     method: "reg_save"        # reg_save | reg_export | raw_copy
+#
+#   raw_ntfs:
+#     files: ["$MFT", "$LogFile", "$Extend/$UsnJrnl:$J"]
+#
+#   composite:
+#     artifacts: ["windows.registry.hives", "windows.filesystem.mft"]
+#     # runs other artifact definitions in sequence
+#
+# PARAMETER types:
+#   { key, label, type: "select", default, options: [{value, label, desc?, size_mul?}] }
+#   { key, label, type: "number", default, min?, max?, step?, suffix? }
+#   { key, label, type: "boolean", default }
+#   { key, label, type: "string", default, placeholder? }

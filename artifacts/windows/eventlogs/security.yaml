@@ -1,0 +1,29 @@
+name: windows.eventlogs.security
+display: Security.evtx
+description: >
+  Windows Security event log — logon/logoff (4624/4634), privilege use,
+  account management, audit policy changes, and object access events.
+  The single most important event log for incident response.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 200
+time_sec: 25
+
+params:
+  - key: scope
+    label: Time range
+    type: select
+    default: all
+    options:
+      - { value: all, label: "Whole .evtx file", desc: "Complete log (most thorough)", size_mul: 1.0 }
+      - { value: last_30d, label: "Last 30 days", desc: "Filter via wevtutil on collection-side", size_mul: 0.4 }
+      - { value: last_7d, label: "Last 7 days", desc: "Recent-incident triage", size_mul: 0.15 }
+
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Security.evtx"

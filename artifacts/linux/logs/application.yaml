@@ -1,0 +1,32 @@
+name: linux.logs.application
+display: Application Logs
+description: >
+  Common application log files — web servers (Apache, Nginx), databases,
+  mail servers, and other services under /var/log.
+platform: linux
+type: file_pattern
+category: System Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 200
+time_sec: 30
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "var/log/apache2/**/*"
+      - "var/log/httpd/**/*"
+      - "var/log/nginx/**/*"
+      - "var/log/mysql/**/*"
+      - "var/log/postgresql/**/*"
+      - "var/log/mail.log"
+      - "var/log/mail.log.*"
+      - "var/log/cron"
+      - "var/log/cron.*"
+      - "var/log/dpkg.log"
+      - "var/log/dpkg.log.*"
+      - "var/log/apt/**/*"
+      - "var/log/yum.log"
+      - "var/log/dnf.log"

@@ -1,0 +1,17 @@
+name: windows.eventlogs.sysmon
+display: Sysmon (if installed)
+description: >
+  Sysmon event logs — process creation, network connections, file writes,
+  registry modifications, DNS queries. The gold standard for endpoint telemetry.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN, SYSMON]
+size_mb: 400
+time_sec: 60
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-Sysmon*.evtx"

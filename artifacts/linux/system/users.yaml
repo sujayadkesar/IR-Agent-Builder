@@ -1,0 +1,48 @@
+name: linux.system.users
+display: User Accounts & Auth
+description: >
+  User accounts, groups, sudoers, login history, and SSH authorized keys.
+  Critical for detecting unauthorized access and privilege escalation.
+platform: linux
+type: composite
+category: System Information
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 5
+time_sec: 10
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/passwd"
+      - "etc/shadow"
+      - "etc/group"
+      - "etc/gshadow"
+      - "etc/sudoers"
+      - "etc/sudoers.d/*"
+      - "etc/login.defs"
+      - "etc/security/access.conf"
+      - "etc/security/limits.conf"
+      - "etc/pam.d/*"
+  - type: command
+    cmd: last
+    args: ["-Faiwx"]
+    output_file: last.txt
+    bash: true
+  - type: command
+    cmd: lastb
+    args: ["-Faiwx"]
+    output_file: lastb.txt
+    bash: true
+  - type: command
+    cmd: lastlog
+    args: []
+    output_file: lastlog.txt
+    bash: true
+  - type: command
+    cmd: who
+    args: ["-a"]
+    output_file: who.txt
+    bash: true

@@ -1,0 +1,17 @@
+name: windows.live.autoruns
+display: Autoruns
+description: "PowerShell sweep of HKLM/HKCU Run/RunOnce keys — persistence mechanism detection."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 3
+sources:
+  - type: command
+    cmd: powershell
+    args: ["-NoProfile", "-Command", "$out=@(); @('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce','HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run','HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce') | ForEach-Object { if(Test-Path $_){Get-ItemProperty $_ | Get-Member -MemberType NoteProperty | ForEach-Object { $out += [PSCustomObject]@{Hive=$using:_;Name=$_.Name;Value=(Get-ItemProperty $using:_).$($_.Name)} }}}; $out | ConvertTo-Json -Depth 3"]
+    output_file: autoruns.json
+    timeout_sec: 30

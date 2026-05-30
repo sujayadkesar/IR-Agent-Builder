@@ -1,0 +1,16 @@
+name: windows.persistence.scheduledtasks
+display: Scheduled Tasks (XML)
+description: "Windows/System32/Tasks — every task definition with actions, triggers, and principals."
+platform: windows
+type: file_pattern
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 5
+time_sec: 5
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/Tasks/**/*"
+      - "Windows/Tasks/**/*"

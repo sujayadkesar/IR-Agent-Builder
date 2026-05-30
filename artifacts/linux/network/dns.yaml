@@ -1,0 +1,24 @@
+name: linux.network.dns
+display: DNS Configuration
+description: "DNS resolver config, hosts file, and cached resolutions."
+platform: linux
+type: composite
+category: Network & Live
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 1
+time_sec: 3
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/resolv.conf"
+      - "etc/hosts"
+      - "etc/nsswitch.conf"
+      - "run/systemd/resolve/stub-resolv.conf"
+  - type: command
+    cmd: resolvectl
+    args: ["status"]
+    output_file: resolvectl.txt
+    bash: true
