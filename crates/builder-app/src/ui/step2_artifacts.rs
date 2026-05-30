@@ -83,7 +83,7 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
 
     // ----- Categories with per-category All/None and collapsible body -----
     for group in &groups {
-        category_section(ui, group, &mut app.spec);
+        category_section(ui, group, &mut app.spec, platform_str);
         ui.add_space(4.0);
     }
 
@@ -112,8 +112,8 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
 
 /// One category with a custom collapsible header that has All / None buttons
 /// on the right side of the section title.
-fn category_section(ui: &mut egui::Ui, group: &CategoryGroup, spec: &mut BuildSpec) {
-    let id = ui.make_persistent_id(format!("category_{}", group.category));
+fn category_section(ui: &mut egui::Ui, group: &CategoryGroup, spec: &mut BuildSpec, platform_str: &str) {
+    let id = ui.make_persistent_id((platform_str, &group.category));
 
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
         .show_header(ui, |ui| {
@@ -150,7 +150,7 @@ fn category_section(ui: &mut egui::Ui, group: &CategoryGroup, spec: &mut BuildSp
             });
         })
         .body(|ui| {
-            egui::Grid::new(format!("grid_{}", group.category))
+            egui::Grid::new(format!("grid_{}_{}", platform_str, group.category))
                 .num_columns(3)
                 .striped(true)
                 .spacing([16.0, 6.0])

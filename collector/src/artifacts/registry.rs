@@ -1,3 +1,4 @@
+#![cfg(target_os = "windows")]
 //! Live registry hive collection — bypasses file locks via the registry API.
 //!
 //! Why not just copy `C:\Windows\System32\config\SAM`?

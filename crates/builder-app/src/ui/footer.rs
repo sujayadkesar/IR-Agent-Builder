@@ -7,6 +7,30 @@ use crate::backend::artifact_catalog::Catalog;
 use crate::spec::{BuildSpec, EncryptionScheme, UploadKind};
 use super::theme;
 
+fn step_complete(app: &App, step: u8, catalog_ok: bool) -> bool {
+    if !catalog_ok && step == 2 {
+        return false;
+    }
+    match step {
+        1 => !app.spec.site_code.is_empty() && !app.spec.filename_template.is_empty(),
+        2 => !app.spec.artifacts.is_empty(),
+        3 => match app.spec.upload.kind {
+            UploadKind::Local => !app.spec.upload.local_path.is_empty(),
+            UploadKind::S3 => !app.spec.upload.bucket.is_empty()
+                && !app.spec.upload.region.is_empty()
+                && !app.spec.upload.access_key_id.is_empty()
+                && !app.spec.upload.secret_access_key.is_empty(),
+        },
+        4 => match app.spec.encryption.scheme {
+            EncryptionScheme::None => true,
+            EncryptionScheme::X509 => !app.spec.encryption.public_key_pem.is_empty(),
+        },
+        5 => true,
+        6 => app.build.as_ref().is_some_and(|b| matches!(b.status, crate::app::BuildStatus::Complete)),
+        _ => false,
+    }
+}
+
 pub fn view(ui: &mut egui::Ui, app: &mut App) {
     ui.add_space(10.0);
     ui.horizontal(|ui| {
@@ -26,7 +50,9 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0);
-            let next_enabled = app.current_step < 6;
+            let catalog_ok = app.catalog.is_ok();
+            let current_step_complete = step_complete(app, app.current_step, catalog_ok);
+            let next_enabled = app.current_step < 6 && current_step_complete;
             let next_label = if app.current_step == 6 { "Done" } else { "Next  →" };
             let next_btn = egui::Button::new(
                 egui::RichText::new(next_label).color(if next_enabled { egui::Color32::WHITE } else { theme::MUTED }),
