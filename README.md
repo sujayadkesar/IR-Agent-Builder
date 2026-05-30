@@ -45,7 +45,7 @@ Velociraptor is excellent and battle-tested — this tool stands on its shoulder
 - **[`crates/shared-crypto/`](crates/shared-crypto/)** — Code shared between the builder (encryption side) and the collector (decryption side). The credential vault lives here so both ends use one bit-compatible implementation.
 - **[`collector/`](collector/)** — Rust binary. Single-shot; drops triage to S3 or local. ~2.5 MB stripped release binary. Unchanged from the previous architecture.
 
-There is **no HTTP server, no localhost, no Node, no npm.** The builder is one ~10 MB binary that opens a native window.
+There is **no HTTP server, no localhost, no Node, no npm.** The builder is one ~10 MB binary that opens a native window. File dialogs use [`rfd`](https://crates.io/crates/rfd) (Rusty File Dialog — native OS picker on Windows/Linux/macOS). In-memory AES keys are zeroed after use via [`zeroize`](https://crates.io/crates/zeroize).
 
 ## Quick start (dev)
 
@@ -208,11 +208,17 @@ IR_Agent_builder/
 │   │       │   ├── ledger.rs               ← rusqlite audit log
 │   │       │   └── sigv4.rs                ← AWS Signature v4 signer
 │   │       └── ui/
-│   │           ├── stepper.rs              ← top tab nav
-│   │           ├── footer.rs               ← totals + back/next
+│   │           ├── sidebar.rs              ← left stepper nav + profile card + export
+│   │           ├── header.rs               ← top bar
+│   │           ├── footer.rs               ← back/next buttons + validation gate
 │   │           ├── theme.rs                ← dark cyan palette
-│   │           ├── widgets.rs              ← step_header helper
-│   │           └── step{1..6}_*.rs         ← one file per wizard step
+│   │           ├── widgets.rs              ← step_header, section_label helpers
+│   │           ├── step1_target.rs         ← OS / site / filename
+│   │           ├── step2_artifacts.rs      ← artifact picker + bundle presets
+│   │           ├── step3_upload.rs         ← S3 / local config + live validation
+│   │           ├── step4_encryption.rs     ← RSA-4096 keygen + key display
+│   │           ├── step5_performance.rs    ← tuning & limits
+│   │           └── step6_review.rs         ← build log, actions, download
 │   │
 │   └── shared-crypto/                      ← used by builder + collector
 │       └── src/
