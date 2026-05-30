@@ -1,0 +1,16 @@
+name: windows.cloud.outlook
+display: Outlook PST/OST
+description: "Local Outlook mail data files — very large, disable if unwanted."
+platform: windows
+type: file_pattern
+category: Cloud & Modern
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 2000
+time_sec: 120
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Local/Microsoft/Outlook/*.ost"
+      - "Users/*/Documents/Outlook Files/*.pst"

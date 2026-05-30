@@ -1,0 +1,36 @@
+name: linux.persistence.initscripts
+display: Init Scripts & RC Files
+description: >
+  Legacy init scripts, rc.local, profile scripts, and shell RC files.
+  Common persistence locations on older and embedded Linux systems.
+platform: linux
+type: file_pattern
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 5
+time_sec: 5
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "etc/rc.local"
+      - "etc/init.d/*"
+      - "etc/rc*.d/*"
+      - "etc/profile"
+      - "etc/profile.d/*"
+      - "etc/bash.bashrc"
+      - "etc/environment"
+      - "home/*/.bashrc"
+      - "home/*/.bash_profile"
+      - "home/*/.profile"
+      - "home/*/.bash_logout"
+      - "home/*/.zshrc"
+      - "home/*/.zprofile"
+      - "root/.bashrc"
+      - "root/.bash_profile"
+      - "root/.profile"
+      - "etc/ld.so.preload"
+      - "etc/ld.so.conf"
+      - "etc/ld.so.conf.d/*"

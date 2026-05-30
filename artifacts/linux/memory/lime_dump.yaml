@@ -1,0 +1,21 @@
+name: linux.memory.lime_dump
+display: Full RAM Dump (LiME)
+description: >
+  Full physical memory acquisition using LiME (Linux Memory Extractor) kernel module.
+  Equivalent of winpmem for Linux. Requires LiME .ko module compiled for the
+  running kernel alongside the collector.
+platform: linux
+type: command
+category: Memory
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT, LIME]
+size_mb: 16000
+time_sec: 600
+sources:
+  - type: command
+    cmd: bash
+    args: ["-c", "insmod lime.ko 'path={{scratch}}/memory.lime format=lime'"]
+    output_file: memory.lime
+    bash: true
+    timeout_sec: 1800

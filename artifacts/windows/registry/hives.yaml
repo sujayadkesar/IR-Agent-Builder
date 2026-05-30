@@ -1,0 +1,42 @@
+name: windows.registry.hives
+display: All Registry Hives
+description: >
+  Complete collection of all Windows registry hives: SAM, SECURITY, SOFTWARE,
+  SYSTEM, DEFAULT, plus per-user NTUSER.DAT and UsrClass.dat with their
+  transaction logs (.LOG1/.LOG2). Uses reg save for live hives and file copy
+  for transaction logs and RegBack snapshots.
+platform: windows
+type: composite
+category: Registry
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN, VSS]
+size_mb: 250
+time_sec: 30
+
+sources:
+  - type: registry
+    hives:
+      - "HKLM\\SAM"
+      - "HKLM\\SECURITY"
+      - "HKLM\\SOFTWARE"
+      - "HKLM\\SYSTEM"
+      - "HKLM\\DEFAULT"
+    method: reg_save
+  - type: file_pattern
+    globs:
+      - "Windows/System32/config/SAM.LOG1"
+      - "Windows/System32/config/SAM.LOG2"
+      - "Windows/System32/config/SECURITY.LOG1"
+      - "Windows/System32/config/SECURITY.LOG2"
+      - "Windows/System32/config/SOFTWARE.LOG1"
+      - "Windows/System32/config/SOFTWARE.LOG2"
+      - "Windows/System32/config/SYSTEM.LOG1"
+      - "Windows/System32/config/SYSTEM.LOG2"
+      - "Windows/System32/config/RegBack/*"
+      - "Users/*/NTUSER.DAT"
+      - "Users/*/NTUSER.DAT.LOG1"
+      - "Users/*/NTUSER.DAT.LOG2"
+      - "Users/*/AppData/Local/Microsoft/Windows/UsrClass.dat"
+      - "Users/*/AppData/Local/Microsoft/Windows/UsrClass.dat.LOG1"
+      - "Users/*/AppData/Local/Microsoft/Windows/UsrClass.dat.LOG2"

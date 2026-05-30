@@ -1,0 +1,16 @@
+name: windows.persistence.startupfolders
+display: Startup Folders
+description: "Per-user and system Start Menu Startup folders — simple persistence mechanism."
+platform: windows
+type: file_pattern
+category: Persistence
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 2
+sources:
+  - type: file_pattern
+    globs:
+      - "Users/*/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/*"
+      - "ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/*"

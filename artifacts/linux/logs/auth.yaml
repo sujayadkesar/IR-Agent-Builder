@@ -1,0 +1,29 @@
+name: linux.logs.auth
+display: Authentication Logs
+description: >
+  auth.log / secure log — SSH logins, sudo usage, PAM events, su attempts.
+  The equivalent of Windows Security.evtx for Linux.
+platform: linux
+type: composite
+category: System Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 50
+time_sec: 10
+
+sources:
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "var/log/auth.log"
+      - "var/log/auth.log.*"
+      - "var/log/secure"
+      - "var/log/secure.*"
+      - "var/log/faillog"
+      - "var/log/btmp"
+      - "var/log/btmp.*"
+      - "var/log/wtmp"
+      - "var/log/wtmp.*"
+      - "var/log/utmp"
+      - "var/log/lastlog"

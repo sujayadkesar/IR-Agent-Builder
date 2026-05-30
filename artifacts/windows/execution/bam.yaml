@@ -1,0 +1,19 @@
+name: windows.execution.bam
+display: BAM/DAM
+description: >
+  Background Activity Moderator tracks per-user binary execution with timestamps.
+  Located in SYSTEM hive under HKLM\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings.
+  Provides user attribution for program execution.
+platform: windows
+type: registry
+category: Evidence of Execution
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 2
+
+sources:
+  - type: registry
+    hives: ["HKLM\\SYSTEM\\CurrentControlSet\\Services\\bam\\State\\UserSettings"]
+    method: reg_export

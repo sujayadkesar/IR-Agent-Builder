@@ -1,0 +1,42 @@
+name: linux.network.firewall
+display: Firewall Rules
+description: "iptables/nftables rules and network configuration."
+platform: linux
+type: command
+category: Network & Live
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 1
+time_sec: 5
+sources:
+  - type: command
+    cmd: iptables
+    args: ["-L", "-n", "-v", "--line-numbers"]
+    output_file: iptables.txt
+    bash: true
+  - type: command
+    cmd: iptables
+    args: ["-t", "nat", "-L", "-n", "-v"]
+    output_file: iptables_nat.txt
+    bash: true
+  - type: command
+    cmd: nft
+    args: ["list", "ruleset"]
+    output_file: nftables.txt
+    bash: true
+  - type: command
+    cmd: ip
+    args: ["addr", "show"]
+    output_file: ip_addr.txt
+    bash: true
+  - type: command
+    cmd: ip
+    args: ["route", "show"]
+    output_file: ip_route.txt
+    bash: true
+  - type: command
+    cmd: ip
+    args: ["neigh", "show"]
+    output_file: ip_neigh.txt
+    bash: true

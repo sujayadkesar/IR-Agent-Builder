@@ -1,0 +1,19 @@
+node_modules/
+dist/
+target/
+builds/
+*.log
+
+# Dev-only wizard state file (auto-restored on cargo run for fast iteration)
+.dev-state.json
+.env
+.env.local
+*.pem
+private*.pem
+ledger.sqlite
+ledger.sqlite-journal
+ledger.sqlite-wal
+ledger.sqlite-shm
+.DS_Store
+Thumbs.db
+.vite/

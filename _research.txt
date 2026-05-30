@@ -1,0 +1,523 @@
+
+DFIR AGENT BUILDER
+Technical Research & Architecture Document
+Velociraptor-Inspired Incident Response Collector with AWS Integration
+Classification: Internal  |  IR Engineering
+Version: 1.0  |  Research Phase
+May 2026
+
+
+Executive Summary
+This document presents deep technical research for building a custom DFIR (Digital Forensics and Incident Response) Agent Builder tool -- a purpose-built alternative to Velociraptor's offline collector that packages all of its power into a clean, modern UI specifically designed for mass endpoint deployment via GPO. The tool enables IR engineers to visually select forensic artifacts, configure AWS S3 upload targets, and compile a single hardened Windows executable -- ready to push to thousands of endpoints.
+
+The research covers three major pillars: (1) the internal mechanics of Velociraptor's collector binary, including its config-repack architecture, artifact selection engine, encryption stack, and VQL execution model; (2) the complete catalog of forensic artifacts available for collection mapped to their IR value; and (3) AWS security architecture for write-only, tamper-evident forensic evidence collection including IAM policies, S3 Object Lock, KMS encryption, and credential embedding strategies.
+
+A fourth pillar -- the complete technical blueprint for the Agent Builder tool itself -- is covered in Part V and VI, including the full UI flow, backend build engine, GPO deployment strategy, and implementation roadmap. This document is intended to serve as the primary planning reference for the project.
+
+Part I -- How Velociraptor's Collector Builder Works Internally
+1.1 The Core Architecture: Config-Repack Model
+Velociraptor's offline collector is not a separately compiled binary -- it is the standard Velociraptor binary with a compressed, embedded YAML configuration injected into a reserved section of the PE (Portable Executable). This is the config-repack architecture and it is the single most important design insight for your custom tool.
+
+How it works step by step:
+• The base Velociraptor binary (~20MB) contains a fixed reserved embedding section (~80KB compressed).
+• When you run config repack, the tool deflate-compresses a YAML spec into that section, overwriting placeholder bytes.
+• On execution without arguments, the binary self-reads its embedding section, decompresses the config, and enters autoexec mode.
+• The autoexec config contains: artifact names, artifact VQL definitions (custom ones only -- built-ins are compiled in), tool binaries (e.g. winpmem for memory), and output/upload settings.
+• Digital signature is intentionally invalidated by the repack -- Velociraptor documents this and provides the Generic Collector format as an alternative for macOS/strict environments.
+
+# Extract config from existing collector:
+Collector.exe config show > config.yaml
+
+# Repack modified config back into binary:
+velociraptor.exe config repack config.yaml new_collector.exe
+
+# CLI-only build (no GUI required, v0.75.5+):
+velociraptor.exe collector --config server.config.yaml --spec collector_spec.yaml output_collector.exe
+
+1.2 The Server.Utils.CreateCollector Artifact
+This is the VQL artifact that powers the GUI's 'Create Offline Collector' button. Understanding it reveals every configurable option available. Key parameters it accepts:
+
+ParameterDefaultDescriptionOSWindowsTarget: Windows, Windows_x86, Linux, MacOS, MacOSArm, Genericartifacts[]JSON array of artifact names to collectparameters{}JSON dict of per-artifact parametersencryption_schemeNonePassword / X509 / PGPtargetZIPZIP, S3, GCS, Azure, SMB, SFTPopt_cpu_limit00-100% CPU cap during collectionopt_progress_timeout1800sKill if no progress within N secondsopt_output_directoryWrite temp files here (use secondary drive)opt_filename_template%FQDN%-%TIMESTAMP%Output zip naming -- supports env varsopt_concurrency2Parallel artifact collectors running at onceopt_formatjsonlOutput format: jsonl or csvopt_adminYRequire admin privileges or abortopt_promptNPause at end (Y for interactive use)opt_delete_afterNDelete local zip after successful upload
+1.3 VQL Execution Model
+Understanding VQL (Velociraptor Query Language) is essential for knowing why the collector is so powerful and flexible:
+• VQL is a SQL-inspired query language where each query produces a stream of rows (JSON objects).
+• Artifacts are named, parameterized VQL programs -- they accept inputs (parameters) and produce output rows.
+• The collector runs each selected artifact's VQL in sequence, serializing output to JSONL or CSV format within the evidence zip.
+• Built-in artifacts (prefetch, MFT, etc.) are compiled into the Go binary -- they do NOT add to the config embed size.
+• Custom/exchange artifacts are embedded as VQL text in the config -- these DO count against the ~80KB limit.
+• Each artifact can spawn sub-queries using foreach(), file(), glob(), and plugin calls to external binaries.
+• The Windows.KapeFiles.Targets artifact is a special VQL wrapper that uses KAPE-style target definitions (YAML) to identify and copy raw files -- it can collect hundreds of file categories through a single artifact call.
+
+VQL Plugin Architecture (key plugins used in IR artifacts):
+• glob() -- file path pattern matching with VSS snapshot support
+• stat() -- file metadata (timestamps, size, attributes)
+• read_file() -- raw file reading with offset/length support
+• parse_mft() -- direct NTFS MFT parsing without filesystem abstraction
+• parse_usn() -- USN journal parsing
+• parse_prefetch() -- Windows Prefetch binary parsing
+• parse_evtx() -- Windows Event Log EVTX parsing
+• reg_key() / reg_values() -- Windows Registry reading
+• upload_s3() -- direct S3 PutObject calls
+• upload_sftp() -- SFTP upload with embedded key
+
+1.4 Artifact Embedding and the ~80KB Limit
+This limit is critical for your tool's design. The ~80KB compressed space inside the PE binary constrains how many artifact definitions can be embedded. Key insights:
+• Built-in artifacts (compiled into the binary) do NOT count against this limit -- only custom or 3rd-party artifact definitions.
+• Compression ratio is very high for YAML (~10:1), so the uncompressed equivalent is ~800KB of YAML definitions.
+• Large artifact bundles (KapeFiles, Memory acquisition with winpmem) can breach this limit when combined.
+• Solution: Use the Generic Collector format -- a separate .collector file alongside the binary, with no size limit.
+• Your builder UI should warn when estimated config size approaches the limit and auto-suggest Generic Collector mode.
+
+1.5 Tool Embedding (3rd Party Binaries)
+Velociraptor can bundle external executables (e.g., winpmem for memory, autoruns, sigcheck) directly into the collector binary. These are stored in an inventory manifest and extracted at runtime. For your builder:
+• Each tool adds to file size -- winpmem alone is ~1.5MB for 64-bit.
+• Tools are verified via SHA256 hash at extraction time (chain of custody).
+• Your UI should show tool size impact as users add memory/external tool artifacts.
+• Tools are defined in Server.Internal.ToolDependencies -- your builder should reference this manifest.
+• winpmem v4+ supports modern Windows 10/11 and Server 2019/2022 -- always use the latest stable release.
+• Autoruns from Sysinternals can be embedded and run at collection time to enumerate all persistence mechanisms.
+
+1.6 The collector_spec.yaml Format (CLI Build Method)
+For headless/programmatic builds (the approach your tool backend should use), the collector_spec.yaml defines everything:
+
+# collector_spec.yaml -- full example
+artifacts:
+  - Windows.Forensics.Prefetch
+  - Windows.System.Amcache
+  - Windows.NTFS.MFT
+  - Windows.EventLogs.Evtx
+  - Windows.Network.Netstat
+parameters:
+  Windows.EventLogs.Evtx:
+    StartDate: '2026-01-01T00:00:00Z'
+    EndDate: '2026-05-06T23:59:59Z'
+    channelList: 'Security,System,Application'
+target: S3
+target_args:
+  bucket: ir-evidence-production
+  region: ap-south-1
+  credentialsKey: AKIAIOSFODNN7EXAMPLE
+  credentialsSecret: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  serverSideEncryption: aws:kms
+  kmsEncryptionKey: arn:aws:kms:ap-south-1:123456789012:key/mrk-abc123
+encryption_scheme: X509
+encryption_args:
+  public_key: |
+    -----BEGIN CERTIFICATE-----
+    [certificate data]
+    -----END CERTIFICATE-----
+opt_admin: Y
+opt_prompt: N
+opt_delete_after: Y
+opt_filename_template: '%FQDN%-%TIMESTAMP%-collection'
+opt_concurrency: 2
+opt_cpu_limit: 0
+opt_progress_timeout: 3600
+opt_format: jsonl
+
+Part II -- Complete Forensic Artifact Catalog
+2.1 Evidence of Execution Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValuePrefetchWindows.Forensics.PrefetchBinary execution times (up to 8 per exe), file paths accessed, run countsCritical -- proves malware ran even after deletionPrefetch TimelineWindows.Timeline.PrefetchSame as above but each run as separate timestamped rowBetter for timeline correlationAmcacheWindows.System.AmcacheFirst execution record, full path, SHA1 hash of executableTracks first-time execution incl. from USB/networkShimcache (AppCompatCache)Windows.Registry.AppCompatCacheExecutable name, size, last modified, execution flagSurvives reboots -- historical execution evidenceBAM/DAMWindows.System.BAMBinary execution per-user SID, last run timeProvides user attribution (Prefetch doesn't)SRUM (App/Network)Windows.Forensics.SRUMApp runtime, CPU time, bytes sent/received per process per dayUsage attribution even for deleted programsUserAssistWindows.Registry.UserAssistGUI program launch count and times via ExplorerUser activity timeline -- GUI-launched programs onlyMUICacheWindows.Registry.MUICacheGUI application names for executed programsHistorical execution -- survives Prefetch clears
+2.2 File System & MFT Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueMFTWindows.NTFS.MFTMaster File Table -- all files ever created, timestamps, sizes, attributesFoundational -- reveals deleted files, timestompingMFT I30 (dir entries)Windows.NTFS.I30Directory index entries including deleted file recordsReveals files deleted from directory listingUSN JournalWindows.Forensics.UsnNTFS change journal -- every file create/modify/delete eventFills gaps in MFT timestampsMFT MirrorWindows.KapeFiles.Targets ($MFTMirr)Backup copy of first 4 MFT recordsIntegrity validation of MFT$LogFileWindows.NTFS.MFT (raw collect)Transaction log for NTFS operationsRecovery of recently deleted filesADS (Alternate Data Streams)Windows.NTFS.AlternateDataStreamsHidden data in NTFS alternate streams, Zone.IdentifierMark of the Web (download origin), hidden payloads
+2.3 Registry Hive Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueSAM HiveKapeFiles SAM targetLocal user accounts, password hashes, logon timesUser enumeration, credential attack evidenceSYSTEM HiveKapeFiles SYSTEM targetComputer name, timezone, network interfaces, servicesSystem config baselineSOFTWARE HiveKapeFiles SOFTWARE targetInstalled software, autorun keys, OS versionPersistence, installed toolsNTUSER.DAT (per user)KapeFiles NTUser targetPer-user recent files, typed URLs, run MRU, shellbagsUser activity reconstructionShellBagsWindows.Registry.ShellbagsFolder navigation history including network shares and USBProves access to sensitive foldersRecentDocsWindows.Registry.RecentDocsRecently accessed files per extensionFile access timelineTypedURLsWindows.Registry.TypedURLsURLs typed directly into IE/Edge address barBrowser activity without full historyRunMRUWindows.Registry.RunMRUPrograms run via Run/Search boxEvidence of attacker tool executionUSB/Storage HistoryWindows.Registry.USBConnected USB device names, serial numbers, timestampsData exfiltration evidence
+2.4 Browser & User Activity Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueBrowser History (All)Windows.Applications.Chrome.History / Firefox.HistoryFull browsing history, downloads, searches per browserC2 infrastructure, phishing landing, tool downloadsBrowser CookiesWindows.Applications.Chrome.CookiesSession cookies, auth tokensCredential/session theft investigationJump ListsWindows.Forensics.Lnk (JumpList path)Recent files per application including remotely accessed filesNetwork share access, document access timelineLNK FilesWindows.Forensics.LnkShortcut metadata: target path, MAC times, volume serial, MFT IDProves file access even if original deletedWindows Timeline (ActivitiesCache)Windows.Forensics.TimelineCross-device user activity: apps used, files opened, websitesDetailed user timeline from Windows 10+Recycle BinWindows.Forensics.RecycleBinDeleted file metadata: original path, deletion timeAnti-forensics detection, deleted evidence
+2.5 Windows Event Log Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueSecurity.evtxWindows.EventLogs.Evtx (Security)Logon/logoff (4624/4634), privilege use, policy changes, account managementAuthentication timeline -- lateral movementSystem.evtxWindows.EventLogs.Evtx (System)Service installs (7045), driver loads, crashes, startup/shutdownPersistence, rootkit, crash correlationApplication.evtxWindows.EventLogs.Evtx (Application)Application errors, crashes, AV eventsMalware execution artefactsPowerShell LogsWindows.EventLogs.PowerShellPS script block logging (4104), module logging (4103), transcriptsPowerShell attack investigationSysmon.evtxWindows.EventLogs.Evtx (Sysmon)Process create, network connections, file writes, registry, DNS (if Sysmon deployed)Gold standard -- requires Sysmon agentWindows DefenderWindows.EventLogs.Evtx (WinDefend)Threat detections, exclusion changes, scan resultsMalware presence, AV tamperingRDP LogsWindows.EventLogs.RDPRDP connection attempts, sessions (TerminalServices-RDPClient)Lateral movement via RDPWMI ActivityWindows.EventLogs.Evtx (WMI)WMI process invocations, subscriptionsWMI persistence and lateral movementScheduled Tasks LogWindows.EventLogs.Evtx (TaskScheduler)Task registration, execution, modification eventsScheduled task persistenceBITS ActivityWindows.BITS.JobsBackground Intelligent Transfer Service jobsFile download from C2 via living-off-the-land
+2.6 Network & Connectivity Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueNetwork Connections (live)Windows.Network.NetstatActive TCP/UDP connections with PIDs and remote IPsLive C2 detection -- run first!DNS CacheWindows.Network.DNSCached DNS resolutions with TTLsC2 domain resolution evidenceARP CacheWindows.Network.ArpCacheMAC-to-IP mappings in ARP tableNetwork topology reconstructionWiFi HistoryWindows.Network.WiFiHistorySSID history, connection timesLocation history, unauthorized network useNetwork SharesWindows.Network.NetstatEnrichedActive shares, connected network pathsLateral movement pathsFirewall LogsWindows.KapeFiles.Targets (WindowsFirewall)Firewall allow/deny events with IPs, portsNetwork-based attack correlation
+2.7 Persistence Mechanism Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueScheduled Tasks (XML)Windows.System.ScheduledTasksAll scheduled task XML definitions with actions, triggers, principalsPrimary persistence mechanismServicesWindows.System.ServicesAll installed services, binary paths, startup typesService-based persistence/rootkitsAutorun KeysWindows.Sysinternals.AutorunsAll autoruns: Run keys, startup folders, browser plugins, WMI subsComprehensive persistence sweepWMI SubscriptionsWindows.Persistence.PermanentWMIEventsWMI event subscriptions (EventFilter + Consumer)Stealthy fileless persistenceStartup FoldersWindows.KapeFiles.Targets (StartupFolders)Files in user/system startup directoriesSimple persistence mechanismDLL Hijacking (PE Imports)Windows.Forensics.PEImports and exports of suspicious DLLsDLL hijack/sideloading investigationCOM Object HijackingWindows.Registry.COMHKCU COM registrations overriding HKLMCOM hijack persistence
+2.8 Memory Forensics Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueFull Memory DumpWindows.Memory.Acquisition (winpmem)Full raw physical memory image via winpmem kernel driverProcess injection, encryption keys, credentials in RAMProcess List (live)Windows.System.PslistRunning processes: name, PID, PPID, user, path, handlesMalicious process identificationProcess HandlesWindows.Forensics.ProcessHandlesFile/registry/network handles per processLateral movement artifacts, C2 channel identificationLoaded Modules (live)Windows.Detection.ProcessMemoryLoaded DLLs per process with pathsInjected DLL detectionVAD (Virtual Address Descriptor)Windows.Memory.VADMemory region map per process with executable flagsProcess hollowing, shellcode injectionVolatility IntegrationGeneric.Collectors.SQLECmd (or custom VQL)Run Volatility plugins via embedded binaryAdvanced memory analysis
+2.9 Cloud & Modern Workspace Artifacts
+Artifact CategoryVelociraptor Artifact NameWhat It ContainsIR ValueOneDrive MetadataWindows.KapeFiles.Targets (CloudStorage_Metadata)OneDrive sync metadata, file lists, account linkageCloud exfiltration path detectionTeams/Slack ArtifactsWindows.Applications.TeamsTeams message DB, call logs, cached filesInsider threat, exfiltration via collaboration toolsAzure AD Join InfoWindows.Registry.AzureAzure tenant ID, device registration infoHybrid identity investigationOutlook PST/OSTWindows.KapeFiles.Targets (Outlook)Email data files for local Outlook cachePhishing investigation, data exfil via emailCredential ManagerWindows.Forensics.CredentialFilesWindows Credential Manager vault entriesStolen credential investigationDPAPI Master KeysWindows.KapeFiles.Targets (DPAPI)Data Protection API keys used to encrypt credentialsCredential decryption forensics
+2.10 Bundle Presets (Equivalent to KAPE Targets)
+
+BUNDLE: QuickTriage (5-15 min, ~200MB)Windows.Forensics.Prefetch + Windows.Timeline.PrefetchWindows.System.Pslist + Windows.Network.Netstat + Windows.Network.DNSWindows.EventLogs.Evtx (Security, System, Application -- last 7 days)Windows.System.ScheduledTasks + Windows.Persistence.PermanentWMIEventsWindows.System.Amcache + Windows.Registry.AppCompatCacheWindows.Registry.USB + Windows.Network.WiFiHistory
+BUNDLE: SANSTriage (Equivalent to KAPE SANS Triage Package, 30-60 min, ~1-3GB)All QuickTriage artifacts PLUS:Windows.KapeFiles.Targets: KapeTriage, EventLogs, $MFT, Registry hives, Prefetch, BITS, CertUtilWindows.KapeFiles.Targets: CloudStorage_Metadata, WebBrowsers, PowerShellConsole, RecycleBinWindows.KapeFiles.Targets: RemoteAdmin, ScheduledTasks, StartupFolders, WinDefendDetectionHistWindows.KapeFiles.Targets: RDPCache, MicrosoftStickyNotes, Notepad++, VSSAnalysisWindows.Sysinternals.Autoruns (with embedded binary)Windows.Registry.Shellbags + RecentDocs + TypedURLs + UserAssist
+BUNDLE: DeepDive (1-4 hours, 5-20GB -- requires sufficient storage)All SANSTriage artifacts PLUS:Windows.Memory.Acquisition (winpmem -- full RAM dump, 8-32GB)Windows.NTFS.MFT (full MFT parse) + Windows.Forensics.Usn (USN Journal)Windows.NTFS.I30 (directory slack analysis for deleted files)Windows.KapeFiles.Targets: LiveUserFiles, MemoryFiles, GroupPolicy, MOFWindows.Forensics.SRUM (30 days of app usage + network usage)Windows.Applications.Chrome/Firefox/Edge (full browser forensics)Windows.Forensics.Timeline (Windows Activity Cache)All EventLogs (all channels, all time) + Sysmon if deployed
+BUNDLE: ThreatHunt (Targeted -- attacker TTPs focus, 15-30 min, ~500MB)Windows.Network.Netstat + Windows.Network.DNS (live C2 detection)Windows.System.Pslist + Windows.Detection.ProcessMemory (injected DLL sweep)Windows.Persistence.PermanentWMIEvents + Windows.Registry.COM (stealthy persistence)Windows.Forensics.SRUM (30d app+network usage for dormant implants)Windows.EventLogs.Evtx (Security: 4624/4625/4648/4688/4698/4702/7045)Windows.EventLogs.PowerShell (script block logging -- 4104)Windows.System.BAM (per-user execution attribution)
+Part III -- AWS Upload Architecture (Complete)
+3.1 Velociraptor's Native Upload Targets
+Velociraptor's Server.Utils.CreateCollector natively supports the following upload targets, configurable in the collector YAML:
+
+TargetAuth MethodBest ForAWS S3Access Key ID + Secret + RegionLarge-scale enterprise IR -- scalable, pay-per-useAWS S3 via SFTPSSH Private Key (embedded in exe)Most secure -- write-only via Transfer Family, no download capabilityGCS (Google Cloud)Service Account JSONGCP environmentsAzure Blob (SAS URL)SAS Token URLAzure environments -- token can be time-limitedSMB ShareUsername + PasswordAir-gapped on-prem networksSFTP ServerSSH Private Key or PasswordOn-prem Linux dropbox server (self-hosted)MinIO (Local S3-compatible)Access Key + Secret (self-hosted)Internal network, no internet requiredWebDAVUsername + PasswordGeneric HTTP-based uploadLocal PathNoneExternal drive, mapped network drive
+3.2 AWS S3 Direct Upload Architecture
+For direct S3 upload (the primary recommendation for your tool), Velociraptor uses its upload_s3() VQL function, which makes authenticated PutObject calls. Key parameters embedded in the collector:
+
+# AWS S3 Upload Configuration (embedded in collector YAML):
+target: S3
+target_args:
+  bucket: ir-evidence-bucket-prod
+  region: ap-south-1        # Mumbai -- closest to Hyderabad
+  credentialsKey: AKIAIOSFODNN7EXAMPLE
+  credentialsSecret: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  endpoint: ''              # Leave empty for AWS, set for MinIO
+  serverSideEncryption: aws:kms
+  kmsEncryptionKey: arn:aws:kms:ap-south-1:123456789012:key/mrk-abc123
+  noverifySsl: false        # Always verify SSL in production
+
+Critical security constraint: Since the access key is embedded in the collector binary, you MUST use a write-only IAM policy. The collector key must NEVER be able to read, list, or delete evidence.
+
+3.3 Complete AWS Infrastructure Setup
+The following outlines every AWS resource that must be created for a production-grade forensic evidence collection infrastructure:
+
+STEP 1: AWS Account StructureCreate a dedicated Forensics AWS Account via AWS Organizations (separate from production).Enable AWS CloudTrail with multi-region trail in this account -- log all API calls.Enable AWS Config for compliance monitoring of S3 bucket settings.Set up AWS GuardDuty to detect anomalous API calls on the evidence bucket (e.g., GetObject from unknown IP).Enable S3 Block Public Access at the account level -- forensic buckets must never be public.
+STEP 2: S3 Evidence Bucket ConfigurationBucket name: ir-evidence-[orgname]-[year] (e.g., ir-evidence-acmecorp-2026)Region: ap-south-1 (Mumbai) for India-based IR teams, or match where endpoints are deployedVersioning: ENABLED -- protects against accidental overwrites, required for Object LockObject Lock: ENABLED, Compliance mode, default retention 365 days (cannot be overridden even by root)Server-side encryption: SSE-KMS with a Customer Managed Key (CMK) -- NOT SSE-S3Bucket policy: Deny any non-HTTPS access (aws:SecureTransport condition)Bucket policy: Deny s3:DeleteObject from ALL principals including rootLifecycle policy: Transition to S3 Glacier after 90 days (cost optimization)Notification: S3 Event Notification -> SNS -> IR team email on any new PutObject (real-time alert)
+STEP 3: KMS Customer Managed Key SetupCreate a CMK in ap-south-1 with key material type: KMS (AWS managed) or EXTERNAL (bring your own)Key policy: Key administrators = IR team IAM roles (can manage but not use for decryption)Key policy: Key users = Collector IAM user (kms:GenerateDataKey only) + Analyst IAM role (kms:Decrypt)Enable automatic key rotation (annually) -- protects against long-term key exposureEnable CloudTrail logging for all KMS API calls (kms:Decrypt calls = who accessed evidence)Multi-Region Key (MRK): Required if collecting from endpoints in multiple AWS regions
+STEP 4: IAM User for Collector (Embedded in EXE)Create IAM User: velociraptor-collector-[buildid] (unique per collector build)Attach write-only policy (see below) -- literally the only permission this user hasCreate Access Key for this user -- this is what gets embedded in the collector binarySet password policy: No console access (programmatic-only user)Set access key expiry: 90 days maximum -- rebuild collectors on rotation scheduleTag the user with: build-id, build-date, artifact-set, created-by for audit tracking
+STEP 5: IAM Role for IR Analysts (Never Embedded)Create IAM Role: ir-analyst-evidence-reader (assumed by analysts, never in any binary)Attach read-only policy: s3:GetObject, s3:ListBucket, s3:GetObjectVersionAttach KMS decrypt policy: kms:Decrypt, kms:DescribeKey for the evidence CMK onlyRequire MFA for role assumption (MFA condition in trust policy)Session duration: 4 hours maximum (collectors run < 1 hour, analysts need longer)Require source IP condition: restrict assumption to corporate VPN IPs or AWS SSO
+Complete IAM Policy for Collector (Write-Only -- Safe to Embed):
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CollectorPutObjectOnly",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::ir-evidence-acmecorp-2026/${aws:username}/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms",
+          "s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:..."
+        },
+        "Bool": {"aws:SecureTransport": "true"}
+      }
+    },
+    {
+      "Sid": "CollectorKMSEncryptOnly",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateDataKey"],
+      "Resource": "arn:aws:kms:ap-south-1:123456789012:key/mrk-abc123"
+    }
+  ]
+}
+
+The ${aws:username} prefix in the resource ensures each collector can ONLY write to its own folder -- even if a key leaks, it cannot overwrite other endpoints' evidence or read any files.
+
+3.4 S3 Bucket Policy (Deny Dangerous Operations)
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyNonHTTPS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::ir-evidence-acmecorp-2026/*",
+                   "arn:aws:s3:::ir-evidence-acmecorp-2026"],
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyUnencryptedPut",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::ir-evidence-acmecorp-2026/*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms"
+        }
+      }
+    },
+    {
+      "Sid": "DenyDeleteEveryone",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": ["s3:DeleteObject","s3:DeleteObjectVersion","s3:DeleteBucket"],
+      "Resource": ["arn:aws:s3:::ir-evidence-acmecorp-2026/*",
+                   "arn:aws:s3:::ir-evidence-acmecorp-2026"]
+    }
+  ]
+}
+
+3.5 AWS SFTP via Transfer Family (Maximum Security Option)
+For environments requiring the highest security, AWS Transfer Family SFTP backed by S3 provides write-only access where the embedded credential is an SSH private key -- not AWS credentials. Even full binary disassembly reveals no AWS credentials.
+• Write-only by policy: The SFTP user has a scope-down IAM policy that allows only s3:PutObject.
+• The collector binary embeds only an SSH private key -- not AWS access keys.
+• Even if the binary is fully reverse-engineered, the attacker can only upload new files.
+• Different SFTP users can be created for investigators (GetObject) vs. collectors (PutObject only).
+• Transfer Family logs all SFTP sessions to CloudWatch -- full audit trail of every upload.
+
+# SFTP Target Configuration:
+target: SFTP
+target_args:
+  upload_file: /evidence/Collection-%FQDN%-%TIMESTAMP%.zip
+  sftp_server: s-xxxx.server.transfer.ap-south-1.amazonaws.com
+  sftp_user: velociraptor-upload-user
+  sftp_private_key: |  # Ed25519 private key embedded here
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    [key data]
+    -----END OPENSSH PRIVATE KEY-----
+
+3.6 S3 Object Naming Strategy (Preventing Collisions)
+The S3 object key (path) structure must be designed to prevent collisions when thousands of endpoints upload simultaneously:
+
+# Recommended S3 Object Key Template:
+{IAM_USERNAME}/{SITE_CODE}/{HOSTNAME}/{TIMESTAMP_ISO8601}_{UUID4}_collection.zip
+
+# Example:
+velociraptor-collector-build007/APAC-HYD/LAPTOP-ABC123/2026-05-06T14-30-00Z_a3f9b221_collection.zip
+
+• IAM_USERNAME prefix: enforced by IAM policy -- collector can only write to its own prefix.
+• SITE_CODE: logical grouping for bulk analysis (APAC-HYD, EU-LON, US-NYC etc.).
+• HOSTNAME: %FQDN% Velociraptor variable -- fully qualified domain name of endpoint.
+• TIMESTAMP_ISO8601: %TIMESTAMP% formatted as sortable ISO 8601 string.
+• UUID4 suffix: prevents clock-skew collisions on same host within same second.
+
+3.7 Local Upload Option (MinIO)
+For environments with bandwidth constraints or no internet access, MinIO provides a local S3-compatible dropbox:
+• MinIO is a single Go binary -- can be run on any Linux server in the IR lab.
+• Provides identical S3 API -- the same upload_s3() function works transparently.
+• Configure with write-only credentials embedded in the collector.
+• Useful for mass deployments across many endpoints on a LAN to avoid saturating internet uplink.
+
+# Local MinIO Configuration:
+target: S3
+target_args:
+  bucket: ir-triage
+  region: us-east-1  # MinIO ignores region, use any valid string
+  credentialsKey: minioadmin
+  credentialsSecret: minioadmin
+  endpoint: http://192.168.1.100:9000  # Internal MinIO server
+  noverifySsl: true  # For internal HTTP-only deployments
+
+Part IV -- Encryption Architecture
+4.1 Velociraptor Encryption Options
+
+Encryption Scheme ComparisonPASSWORD: Simple symmetric AES password. Weakest -- password must be embedded in binary or provided at runtime.X509 (RECOMMENDED): Asymmetric. RSA/ECC public key embedded in collector -- only the private key can decrypt. Even full binary disassembly reveals no decryption capability.PGP: Asymmetric like X509. Random session key encrypted with PGP public key. Equivalent security to X509 but does not support auto-import to Velociraptor server.NONE: No container encryption. Still protected by TLS in transit and SSE-KMS at rest -- acceptable if S3 controls are strong.
+4.2 X509 Encryption Deep Dive
+X509 is the recommended and most practical scheme for enterprise IR:
+• Collector generates a cryptographically random AES-256 session key at runtime (different for every collection).
+• Session key is encrypted with the RSA/ECC public key and stored in the zip container header.
+• The zip file itself is AES-256 encrypted with the session key.
+• Only the private key holder (the IR analyst's system or Velociraptor server) can decrypt.
+• Compromising the binary only reveals the public key -- attacker can upload but never read evidence.
+• Auto-import: When the server's own certificate is used, Velociraptor automatically decrypts on import.
+
+Key generation for your custom tool:
+# Generate RSA-4096 key pair (Python cryptography library):
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization
+
+private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+public_key = private_key.public_key()
+
+# Export public key as PEM (embed in collector):
+pub_pem = public_key.public_bytes(
+    serialization.Encoding.PEM,
+    serialization.PublicFormat.SubjectPublicKeyInfo
+)
+
+# Store private key in AWS Secrets Manager:
+# aws secretsmanager create-secret --name dfir/build-007/private-key \
+#   --secret-string file://private_key.pem
+
+4.3 Transport Encryption (In-Transit)
+• All S3 uploads enforce HTTPS (TLS 1.2 minimum via AWS policy) -- use the condition aws:SecureTransport: true in IAM policies.
+• SFTP is inherently encrypted via SSH transport layer.
+• The container is also encrypted before upload -- so evidence is encrypted at rest AND in transit (double encryption for the paranoid).
+• AWS S3 provides SSE-KMS server-side encryption as a third layer when configured.
+• Three layers in total: X509 container encryption + TLS in-transit + SSE-KMS at-rest.
+
+Part V -- Agent Builder Tool -- Complete Architecture
+5.1 Technology Stack Recommendation
+
+Recommended Technology StackFRONTEND: React (TypeScript) + Electron (cross-platform desktop app) + Tailwind CSS dark themeBACKEND API: Python FastAPI (or Go gin) -- handles Velociraptor binary management and build orchestrationBUILD ENGINE: Subprocess wrapper around velociraptor.exe collector CLI commandKEY MANAGEMENT: Python cryptography library for X509 key pair generation + AWS Secrets Manager APIARTIFACT DATABASE: SQLite (or JSON) catalog of all supported artifacts with metadataCONFIGURATION: YAML generation layer -- maps UI selections to collector_spec.yamlAUDIT LEDGER: SQLite database logging every build with: artifact set, key fingerprint, S3 config (redacted), timestampsPACKAGING: PyInstaller (Python backend) + Electron Builder (frontend) -> single installerfor IR team workstations
+5.2 UI Flow Design (6-Step Wizard)
+STEP 1: Target Configuration
+• Target OS selector: Windows x64 (default) / Windows x86 (legacy) / Linux / macOS
+• Hostname template: %FQDN%-%TIMESTAMP% with live preview: LAPTOP-ABC123-2026-05-06T14-30-00Z
+• Site code field: logical grouping prefix (e.g., APAC-HYD, EU-LON) -- added to S3 path
+• UUID suffix toggle: ON by default -- prevents filename collisions from clock skew
+
+STEP 2: Artifact Selection
+• Bundle presets across top: [QuickTriage] [SANSTriage] [DeepDive] [ThreatHunt] [Custom] -- one-click activation
+• Expandable category tree with checkboxes:
+? Execution Evidence: Prefetch / Timeline.Prefetch / Amcache / Shimcache / BAM / SRUM / UserAssist / MUICache
+? File System: MFT / USN Journal / I30 / $LogFile / ADS / LNK Files / Jump Lists / Recycle Bin
+? Registry: SAM / SYSTEM / SOFTWARE / NTUSER.DAT / ShellBags / USB History / RecentDocs / RunMRU / TypedURLs / COM
+? Event Logs: Security / System / Application / PowerShell / Sysmon / WinDefender / RDP / WMI / TaskScheduler / BITS
+? Network: Netstat / DNS Cache / ARP Cache / WiFi History / Firewall Logs
+? Persistence: Scheduled Tasks / Services / Autoruns / WMI Subscriptions / Startup Folders / DLL Imports
+? Memory: Full RAM Dump / Process List / Handles / Loaded Modules / VAD Map
+? Browser: Chrome / Firefox / Edge / IE History + Cookies + Downloads
+? Cloud/Modern: OneDrive / Teams / Outlook / Credential Manager / DPAPI
+• Each artifact row shows: [checkbox] [name] [tooltip description] [estimated size] [estimated time] [dependency badge: ADMIN/SYSMON/WINPMEM]
+• VSS (Volume Shadow Copy) master toggle: scan all VSS snapshots -- adds 2-4x collection time warning
+• Live running totals: Estimated Size: 1.2 GB  |  Estimated Time: ~45 min  |  Config Size: 12KB / 80KB limit
+
+STEP 3: Upload Target
+• Radio selector: [AWS S3 Direct] [AWS Transfer Family SFTP] [Local Path] [MinIO (LAN)]
+
+AWS S3 Direct form fields:
+? Bucket Name (text field with validation regex)
+? AWS Region (dropdown: ap-south-1 Mumbai / us-east-1 N.Virginia / eu-west-1 Ireland / etc.)
+? Access Key ID (masked input)
+? Secret Access Key (masked input)
+? S3 Prefix Template (default: ${aws:username}/%SITE%/%FQDN%/%TIMESTAMP%_%UUID%)
+? SSE-KMS toggle (ON by default)
+? KMS Key ARN (shown when SSE-KMS enabled)
+? [Validate AWS Connection] button -- makes a test PutObject to test-path/ then deletes it
+? [Generate IAM Policy] button -- outputs the minimum required write-only policy JSON for copy-paste into AWS console
+
+AWS Transfer Family SFTP form fields:
+? SFTP Endpoint (Transfer Family server hostname)
+? SFTP Username
+? SSH Private Key (file upload or paste -- auto-validates format)
+? Remote path template
+
+Local Path form:
+? Output directory (supports UNC paths: \\SERVER\IRShare\)
+? Delete local zip after copy: toggle
+
+STEP 4: Encryption & Security
+• Encryption scheme: [X509 -- Recommended] [PGP] [Password] [None]
+• X509 mode: [Generate New Key Pair (default)] [Upload Existing Certificate]
+• Key display: Shows generated public key fingerprint + Download Private Key button (prominent WARNING label)
+• Private key storage reminder: Store in AWS Secrets Manager / HashiCorp Vault -- never in the same S3 bucket as evidence
+• Auto-delete local zip after upload: YES (default for GPO) / NO
+• Require admin to run: YES (default) / NO
+• Pause on completion: NO (default, for GPO silent) / YES (for interactive IR use)
+
+STEP 5: Performance Tuning
+• CPU limit: 0% = unlimited (IR default) | Slider 0-80% for live production servers
+• Concurrency: 2 (default) | 1-8 parallel collectors (increase for fast NVMe endpoints)
+• Progress timeout: 3600s (1 hour default) -- kills stalled artifact collectors
+• Temp directory: %TEMP% default | custom path (useful for AV exclusion directories)
+• Output format: JSONL (default, structured) | CSV (legacy analysis tools)
+• Max collection size: 0 = unlimited | set cap in GB to prevent runaway collections
+
+STEP 6: Review & Build
+• Configuration preview panel: rendered YAML with syntax highlighting (read-only)
+• Summary card: Artifact count, estimated size, estimated runtime, encryption scheme, upload target
+• Embed mode indicator: Standard PE Embed (green) or Generic Collector Mode (yellow -- triggered auto when config > 60KB)
+• Build ID: auto-generated UUID (used in IAM username, S3 prefix, audit log)
+• [BUILD COLLECTOR] button -- triggers backend build pipeline
+• Progress: Generating config... | Repacking binary... | Signing (if cert configured)... | Done!
+• Output: Collector_[BUILDID].exe download button + Build Metadata JSON download
+• Build metadata contains: build ID, artifact list, key fingerprint, S3 prefix, build timestamp -- no secrets
+
+5.3 Backend Build Pipeline
+The sequence of operations the backend performs when the user clicks BUILD:
+
+# Backend Build Pipeline (Python pseudocode)
+def build_collector(spec: CollectorSpec) -> BuildResult:
+    build_id = generate_uuid()
+
+    # Step 1: Generate encryption keys
+    if spec.encryption == 'X509':
+        private_key, public_cert = generate_x509_keypair(key_size=4096)
+        vault_store(f'dfir/{build_id}/privkey', private_key)
+        spec.encryption_args.public_key = public_cert
+
+    # Step 2: Generate collector_spec.yaml
+    spec_yaml = render_spec_yaml(spec, build_id)
+    write_temp(f'/tmp/{build_id}/collector_spec.yaml', spec_yaml)
+
+    # Step 3: Estimate config size and choose embed mode
+    compressed_size = estimate_compressed_size(spec_yaml)
+    use_generic = compressed_size > 60 * 1024  # 60KB threshold
+
+    # Step 4: Invoke Velociraptor CLI
+    result = subprocess.run([
+        'velociraptor.exe', 'collector',
+        '--config', 'server.config.yaml',
+        '--spec', f'/tmp/{build_id}/collector_spec.yaml',
+        f'/tmp/{build_id}/Collector_{build_id}.exe'
+    ], capture_output=True, timeout=300)
+
+    # Step 5: Optional code signing
+    if config.SIGNING_CERT_PATH:
+        signtool_sign(f'/tmp/{build_id}/Collector_{build_id}.exe')
+
+    # Step 6: Write audit log
+    audit_log.write(build_id, spec, public_cert_fingerprint)
+
+    return BuildResult(exe_path=..., build_id=build_id, metadata=...)
+
+5.4 Collector Binary Security Hardening
+• Embed only the write-only IAM access key -- use AWS STS to generate scoped-down temporary credentials if possible.
+• Use a dedicated IAM user per build (unique access key per collector version) -- makes it easy to revoke a specific collector's upload capability.
+• Set IAM access key expiry (90 days max) -- rotate embedded keys by rebuilding collectors regularly.
+• The opt_delete_after: Y setting removes the local zip after successful upload -- reduces on-disk exposure.
+• The opt_require_admin: Y setting ensures the collector fails gracefully if run without elevation.
+• Consider code signing the output exe with a corporate code signing certificate to prevent EDR blocks.
+• The X509 encrypted container means even the evidence-handling team needs the private key -- build an access control for it.
+• Consider process protection: rename collector to something innocuous for stealth deployment if needed.
+
+5.5 GPO Deployment Strategy
+• Deploy the collector EXE via GPO Startup Script (runs as SYSTEM -- satisfies admin requirement).
+• OR deploy via GPO Software Installation as a dummy MSI wrapping the EXE.
+• OR use SCCM/Intune for modern device management -- push as a Win32 App.
+• Use the %FQDN%-%TIMESTAMP% naming template so each endpoint creates a uniquely named S3 object.
+• Use S3 prefix per site: s3://bucket/{SITE}/{HOSTNAME}/{TIMESTAMP}_{UUID}.zip
+• The opt_prompt: N setting ensures the collector runs silently -- no user interaction required.
+• The collector creates its own temp directory, runs, uploads, optionally deletes local evidence, and exits.
+• Total runtime for QuickTriage: 5-15 minutes. For SANSTriage: 30-60 minutes. Design GPO timeout accordingly.
+• For SCCM: Deploy as 'Required' with detection rule: registry key written by collector on completion.
+• For Intune: Use PowerShell wrapper script as Win32 app, use file existence as detection rule.
+
+Part VI -- Implementation Roadmap
+Phase 1: Core Builder Backend (Weeks 1-3)
+• Set up Python FastAPI backend that wraps the Velociraptor binary.
+• Implement collector_spec.yaml generator -- maps UI selections to collector spec format.
+• Implement Velociraptor CLI invocation -- calls velociraptor.exe collector programmatically.
+• Implement X509 key pair generation using Python cryptography library.
+• Build artifact catalog database (SQLite) -- artifact name, description, VQL param keys, size estimate, dependencies.
+• Implement AWS IAM policy generator -- outputs minimum required write-only policy JSON.
+• Implement AWS S3 connection validator -- test PutObject + DeleteObject on test-validation/ prefix.
+
+Phase 2: UI Layer (Weeks 3-5)
+• Build React/Electron frontend with the 6-step wizard flow.
+• Implement bundle preset toggles (QuickTriage / SANSTriage / DeepDive / ThreatHunt) -- auto-check artifact tree.
+• Implement live size/time estimator as artifacts are selected.
+• Implement config YAML preview panel with syntax highlighting (use CodeMirror or Monaco editor).
+• Implement AWS connection validator UI -- green/red status with error messages.
+• Implement build progress UI -- step-by-step progress with spinner and log output.
+• Dark theme UI with cybersecurity aesthetic -- deep blue/green color palette.
+
+Phase 3: Security & AWS Integration (Weeks 5-6)
+• Implement complete AWS infrastructure setup wizard -- guides user through creating bucket, IAM user, KMS key.
+• Implement AWS Transfer Family SFTP setup guide -- generates key pair, provides console instructions.
+• Implement build metadata ledger -- every build logged with: artifact list, key fingerprints, S3 config, build hash.
+• Implement private key vault integration -- download button + AWS Secrets Manager push option.
+• Implement IAM access key rotation alerts -- warn when embedded keys approach 90-day expiry.
+
+Phase 4: Hardening & Testing (Weeks 6-8)
+• Test collector on Windows 10/11, Server 2019/2022 with and without admin rights.
+• Test S3 upload with large payloads (multi-part upload required for files > 100MB -- verify Velociraptor handles this).
+• Test encryption: verify encrypted zip cannot be opened without private key.
+• Test GPO deployment on a test domain -- verify silent execution, no user prompt.
+• Load test: deploy to 50 simultaneous VMs and verify no S3 prefix collisions or upload conflicts.
+• EDR bypass testing: verify collector is not blocked by Windows Defender, CrowdStrike, or SentinelOne.
+• Code signing: sign with internal CA and verify EDR acceptance.
+
+Part VII -- Technical Risks & Mitigations
+
+RiskSeverityMitigationEmbedded AWS key exfiltrated via binary reverse engineeringHIGHUse write-only IAM policy + S3 Object Lock. Attacker can upload junk but cannot read/delete evidence. Use SFTP option to avoid embedding AWS keys entirely.Config embed limit (~80KB) exceeded for large bundlesMEDIUMAuto-detect size; switch to Generic Collector format automatically when over 60KB compressed.Memory acquisition crashes endpoint under loadMEDIUMwinpmem is production-tested; set CPU limit to 50% for live systems; make memory optional in presets.Collector blocked by AV/EDR (code signing issue)MEDIUMCode-sign the repacked exe with internal CA; add AV exclusion path via GPO pre-step; test against Windows Defender.S3 multipart upload partial failure (large evidence)MEDIUMVelociraptor S3 client handles multipart; implement retry logic; verify Part abort cleanup policy on bucket.VSS collection causes excessive disk I/O on production serverMEDIUMMake VSSAnalysis opt-in; add I/O throttling; schedule for off-hours via GPO.Clock skew causes %TIMESTAMP% collisions on same hostLOWAppend random UUID4 suffix to filename template (enabled by default in builder).GPO deployment fails silently (non-admin context)LOWopt_require_admin: Y causes graceful exit with log; add event log entry via GPO script for monitoring.KMS key deletion locks all evidence permanentlyHIGHSet KMS key deletion waiting period to 30 days; require MFA to schedule deletion; back up key material if using EXTERNAL key type.S3 bucket accidentally made publicHIGHAccount-level Block Public Access policy + S3 bucket policy denying non-VPC access. GuardDuty alert on public bucket change.IAM key leaked in Git/code repositoryHIGHRotate immediately; use git-secrets or truffleHog in CI/CD; consider STS temporary creds instead of static keys.
+Part VIII -- Key Technical References
+• Velociraptor Docs: Building Offline Collectors -- docs.velociraptor.app/docs/deployment/offline_collections/building/
+• Velociraptor Docs: The collector CLI command -- docs.velociraptor.app/docs/cli/collector/
+• Velociraptor Artifact: Server.Utils.CreateCollector -- docs.velociraptor.app/artifact_references/pages/server.utils.createcollector/
+• Velociraptor Blog: SFTP in AWS -- docs.velociraptor.app/blog/2021/2021-12-11-sftp-in-aws/
+• Velociraptor Blog: X509/PGP Encryption -- docs.velociraptor.app/blog/2022/2022-11-21-release-notes/
+• Velociraptor Docs: Offline Collections (overview) -- docs.velociraptor.app/docs/deployment/offline_collections/
+• Velociraptor GitHub: Exchange Artifacts Library -- github.com/Velocidex/velociraptor-docs/tree/master/content/exchange
+• Velociraptor GitHub: juju4/velociraptor-offline-collections (example configs) -- github.com/juju4/velociraptor-offline-collections
+• AWS Security Blog: Framework for Forensic Artifact Collection to S3 -- aws.amazon.com/blogs/security/
+• AWS Prescriptive Guidance: Automate Incident Response and Forensics -- docs.aws.amazon.com/prescriptive-guidance/
+• AWS Docs: S3 Object Lock User Guide -- docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html
+• AWS Docs: KMS Key Policies -- docs.aws.amazon.com/kms/latest/developerguide/key-policies.html
+• AWS Docs: Transfer Family SFTP -- docs.aws.amazon.com/transfer/latest/userguide/
+• Velociraptor Evidence of Execution Docs -- docs.velociraptor.app/docs/forensic/evidence_of_execution/
+• KAPE Target Definitions (reference for KapeFiles artifacts) -- github.com/EricZimmerman/KapeFiles
+• winpmem Memory Acquisition Tool -- github.com/Velocidex/WinPmem
+• InfoSec Notes: Velociraptor Configuration Examples -- notes.qazeer.io/dfir/tools/velociraptor
+
+-------------------------------------------------------------------
+END OF RESEARCH DOCUMENT
+DFIR Agent Builder -- IR Engineering  |  May 2026

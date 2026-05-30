@@ -1,0 +1,17 @@
+name: windows.live.wifihistory
+display: WiFi History
+description: "netsh wlan show profiles — SSID history and stored credentials."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 2
+sources:
+  - type: command
+    cmd: netsh
+    args: ["wlan", "show", "profiles"]
+    output_file: wifi.txt
+    timeout_sec: 15

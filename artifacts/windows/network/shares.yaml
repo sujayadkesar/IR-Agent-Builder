@@ -1,0 +1,17 @@
+name: windows.live.shares
+display: Network Shares
+description: "net share — currently exposed network shares."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: []
+size_mb: 1
+time_sec: 1
+sources:
+  - type: command
+    cmd: net
+    args: ["share"]
+    output_file: shares.txt
+    timeout_sec: 15

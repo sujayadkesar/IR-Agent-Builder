@@ -1,0 +1,17 @@
+name: windows.live.firewallrules
+display: Firewall Rules
+description: "netsh advfirewall — every firewall rule on the host."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 2
+time_sec: 5
+sources:
+  - type: command
+    cmd: netsh
+    args: ["advfirewall", "firewall", "show", "rule", "name=all"]
+    output_file: firewall.txt
+    timeout_sec: 30

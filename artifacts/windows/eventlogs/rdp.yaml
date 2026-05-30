@@ -1,0 +1,16 @@
+name: windows.eventlogs.rdp
+display: RDP Logs
+description: TerminalServices client/server connection events for lateral movement tracking.
+platform: windows
+type: file_pattern
+category: Event Logs
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 15
+time_sec: 5
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-TerminalServices*.evtx"
+      - "Windows/System32/winevt/Logs/Microsoft-Windows-RemoteDesktop*.evtx"

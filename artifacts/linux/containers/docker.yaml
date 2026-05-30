@@ -1,0 +1,45 @@
+name: linux.containers.docker
+display: Docker Forensics
+description: >
+  Docker container listing, images, volumes, networks, and container logs.
+  Detects cryptominers, backdoor containers, and container escape artifacts.
+platform: linux
+type: composite
+category: Containers
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ROOT]
+size_mb: 50
+time_sec: 30
+sources:
+  - type: command
+    cmd: docker
+    args: ["ps", "-a", "--no-trunc", "--format", "json"]
+    output_file: docker_ps.json
+    bash: true
+  - type: command
+    cmd: docker
+    args: ["images", "--no-trunc", "--format", "json"]
+    output_file: docker_images.json
+    bash: true
+  - type: command
+    cmd: docker
+    args: ["network", "ls", "--no-trunc", "--format", "json"]
+    output_file: docker_networks.json
+    bash: true
+  - type: command
+    cmd: docker
+    args: ["volume", "ls", "--format", "json"]
+    output_file: docker_volumes.json
+    bash: true
+  - type: command
+    cmd: docker
+    args: ["info", "--format", "json"]
+    output_file: docker_info.json
+    bash: true
+  - type: file_pattern
+    base: "/"
+    globs:
+      - "var/lib/docker/containers/*/*.log"
+      - "var/lib/docker/containers/*/config.v2.json"
+      - "etc/docker/daemon.json"

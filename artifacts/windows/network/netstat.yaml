@@ -1,0 +1,17 @@
+name: windows.live.netstat
+display: Active Connections
+description: "netstat -anob — TCP/UDP with PIDs and owning process. Run FIRST for live C2 detection."
+platform: windows
+type: command
+category: Live Network & System
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 1
+time_sec: 5
+sources:
+  - type: command
+    cmd: netstat
+    args: ["-anob"]
+    output_file: netstat.txt
+    timeout_sec: 30

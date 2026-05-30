@@ -1,0 +1,18 @@
+name: windows.cred.dpapi
+display: DPAPI Master Keys
+description: "Windows DPAPI master keys and user credential blobs for offline decryption."
+platform: windows
+type: file_pattern
+category: Cloud & Modern
+author: DFIR Engineering
+version: "1.0.0"
+deps: [ADMIN]
+size_mb: 5
+time_sec: 5
+sources:
+  - type: file_pattern
+    globs:
+      - "Windows/System32/Microsoft/Protect/**/*"
+      - "Users/*/AppData/Roaming/Microsoft/Protect/**/*"
+      - "Users/*/AppData/Local/Microsoft/Credentials/*"
+      - "Users/*/AppData/Roaming/Microsoft/Credentials/*"
