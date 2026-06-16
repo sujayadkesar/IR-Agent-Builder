@@ -1,16 +1,19 @@
 //! Hybrid encryption: AES-256-GCM bulk + RSA-OAEP-SHA256 key wrapping.
 //!
-//! Container layout (single file, e.g. `collection.zip.enc`):
-//!     [4-byte BE u32 header_len] [JSON header bytes] [AES-GCM nonce 12B]
-//!     [GCM ciphertext (= ZIP plaintext) + 16B auth tag]
+//! Container layout (single file, e.g. `collection.zip.enc`) — matches
+//! `docs/decrypt.md` and the analyst `decrypt.py` helper:
+//!     [4B magic "DFIR"] [1B version] [4B BE u32 header_len]
+//!     [JSON header bytes] [AES-GCM ciphertext (= ZIP plaintext) + 16B tag]
 //!
-//! JSON header (cleartext, included in AAD):
+//! JSON header (cleartext, included in AAD — the 12B nonce lives here, not
+//! as a separate field on the wire):
 //!     {
 //!       "version": 1,
 //!       "scheme": "rsa-oaep-sha256+aes-256-gcm",
 //!       "build_id": "...",
 //!       "created_at": "<iso8601>",
 //!       "wrapped_key_b64": "<base64 RSA-OAEP-SHA256(aes_key)>",
+//!       "nonce_b64": "<base64 12-byte GCM nonce>",
 //!       "key_fingerprint_sha256": "<hex sha256 of pubkey DER>"
 //!     }
 //!

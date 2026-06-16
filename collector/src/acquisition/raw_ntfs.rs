@@ -25,7 +25,7 @@ use std::path::Path;
 use std::os::windows::fs::OpenOptionsExt;
 
 /// Buffer size when streaming file data out.
-const COPY_BUF: usize = 1 * 1024 * 1024;
+const COPY_BUF: usize = 1024 * 1024;
 
 /// Open a raw volume by drive letter (e.g. "C") with backup semantics.
 fn open_volume(drive_letter: char) -> Result<BufReader<File>> {

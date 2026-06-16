@@ -63,7 +63,7 @@ fn run_yaml_artifact(
     name: &str,
     collect_root: &Path,
     scratch: &Path,
-    cfg: &Config,
+    _cfg: &Config,
     source_def: &crate::config::EmbeddedArtifactSource,
 ) -> Result<ArtifactStats> {
     let mut total_stats = ArtifactStats::default();
@@ -122,7 +122,9 @@ fn run_yaml_artifact(
             "registry" => {
                 #[cfg(target_os = "windows")]
                 {
-                    if let Some(hives) = source.get("hives").and_then(|v| v.as_array()) {
+                    // NOTE: `collect_live` saves the full standard hive set; the
+                    // per-source `hives` list is not yet honored individually.
+                    if source.get("hives").and_then(|v| v.as_array()).is_some() {
                         let method = source.get("method").and_then(|v| v.as_str()).unwrap_or("reg_save");
                         match method {
                             "reg_save" => {
