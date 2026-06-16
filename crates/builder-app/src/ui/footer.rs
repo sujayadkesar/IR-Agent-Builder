@@ -32,7 +32,11 @@ fn step_complete(app: &App, step: u8, catalog_ok: bool) -> bool {
 }
 
 pub fn view(ui: &mut egui::Ui, app: &mut App) {
-    ui.add_space(10.0);
+    // Top hairline divider separating the footer from the content.
+    let r = ui.max_rect();
+    ui.painter().hline(r.x_range(), r.top(), egui::Stroke::new(1.0, theme::BORDER));
+
+    ui.add_space(12.0);
     ui.horizontal(|ui| {
         ui.add_space(12.0);
         let catalog = app.catalog.as_ref().ok();
@@ -53,7 +57,11 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
             let catalog_ok = app.catalog.is_ok();
             let current_step_complete = step_complete(app, app.current_step, catalog_ok);
             let next_enabled = app.current_step < 6 && current_step_complete;
-            let next_label = if app.current_step == 6 { "Done" } else { "Next  →" };
+            let next_label = if app.current_step == 6 {
+                "Done".to_string()
+            } else {
+                format!("Next  {}", egui_phosphor::regular::CARET_RIGHT)
+            };
             let next_btn = egui::Button::new(
                 egui::RichText::new(next_label).color(if next_enabled { egui::Color32::WHITE } else { theme::MUTED }),
             )
@@ -68,7 +76,7 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
             ui.add_space(6.0);
             let back_enabled = app.current_step > 1;
             let back_btn = egui::Button::new(
-                egui::RichText::new("←  Back").color(theme::TEXT),
+                egui::RichText::new(format!("{}  Back", egui_phosphor::regular::CARET_LEFT)).color(theme::TEXT),
             )
             .fill(theme::BG_CARD)
             .stroke(egui::Stroke::new(1.0, theme::BORDER))

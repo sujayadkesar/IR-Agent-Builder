@@ -23,12 +23,16 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
     let groups = catalog.for_platform(platform_str);
 
     // ----- Bundles row -----
-    ui.label(egui::RichText::new("BUNDLES").small().monospace().color(theme::ACCENT));
-    ui.add_space(4.0);
+    super::widgets::caption(ui, "ONE-CLICK BUNDLES");
     ui.horizontal_wrapped(|ui| {
         for b in catalog.bundles_for_platform(platform_str) {
-            let label = format!("{}  ·  {}", b.name, b.estimate_label);
-            if ui.button(label).clicked() {
+            let label = format!("{}   ·   {}", b.name, b.estimate_label);
+            let chip = egui::Button::new(egui::RichText::new(label).size(12.5).color(theme::TEXT))
+                .fill(theme::BG_CARD)
+                .stroke(egui::Stroke::new(1.0, theme::ACCENT))
+                .rounding(egui::Rounding::same(14.0))
+                .min_size(egui::vec2(0.0, 28.0));
+            if ui.add(chip).clicked() {
                 app.spec.artifacts = b.artifacts.clone();
                 app.spec.kape_targets = b.kape_targets.clone();
             }
@@ -91,13 +95,8 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
 
     // ----- KAPE targets summary (Windows only) -----
     if matches!(app.spec.target_platform, TargetPlatform::Windows) {
-        ui.label(
-            egui::RichText::new("KAPE TARGETS (file-pattern only, layered on top)")
-                .small()
-                .monospace()
-                .color(theme::ACCENT),
-        );
         ui.add_space(4.0);
+        super::widgets::caption(ui, "KAPE TARGETS  ·  file-pattern only, layered on top");
         if app.spec.kape_targets.is_empty() {
             ui.label(egui::RichText::new("none selected").small().color(theme::MUTED));
         } else {

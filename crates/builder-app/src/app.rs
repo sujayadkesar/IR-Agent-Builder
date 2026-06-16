@@ -98,7 +98,11 @@ impl App {
         let last_persisted_hash = hash_spec(&spec);
 
         Self {
-            current_step: 1,
+            current_step: std::env::var("DFIR_START_STEP")
+                .ok()
+                .and_then(|s| s.parse::<u8>().ok())
+                .filter(|n| (1..=6).contains(n))
+                .unwrap_or(1),
             spec,
             catalog,
             build: None,
@@ -310,7 +314,7 @@ impl eframe::App for App {
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::default().fill(ui::theme::BG_PANEL).inner_margin(egui::Margin::ZERO))
             .show(ctx, |ui| {
-                ui::header::view(ui);
+                ui::header::view(ui, self);
             });
 
         egui::TopBottomPanel::bottom("footer")
