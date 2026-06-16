@@ -31,13 +31,8 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub fn upload(cfg: &S3Cfg, file: &Path, object_key: &str) -> Result<()> {
     // The caller (main.rs) has already resolved the prefix template, so we
-    // use the key as-is. Defensive: if the legacy `${aws:username}` token
-    // somehow slips through, swap it out — but never with the access key,
-    // since the access key in S3 paths leaks credentials to anyone with
-    // ListBucket. Use the IAM username at AWS evaluation time instead.
-    let key = object_key
-        .trim_start_matches('/')
-        .replace("${aws:username}", "${aws:username}");
+    // use the key as-is (just strip any leading slash — S3 keys are relative).
+    let key = object_key.trim_start_matches('/').to_string();
 
     let size = std::fs::metadata(file)?.len();
     // NB: we do NOT log the access key id here. Even truncated forms can be
@@ -124,7 +119,7 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
 
     // 2. UploadPart loop
     let mut f = File::open(file)?;
-    let total_parts = ((size + MULTIPART_PART_SIZE - 1) / MULTIPART_PART_SIZE) as usize;
+    let total_parts = size.div_ceil(MULTIPART_PART_SIZE) as usize;
     let mut etags: Vec<(usize, String)> = Vec::with_capacity(total_parts);
 
     for part_num in 1..=total_parts {
@@ -236,11 +231,6 @@ pub fn upload_part(cfg: &S3Cfg, key: &str, upload_id: &str, part_number: u32, da
         endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key),
         part_number, urlencode_query(upload_id),
     );
-    let q_pairs: Vec<(&str, &str)> = vec![
-        ("partNumber", &part_number.to_string()),
-        ("uploadId", upload_id),
-    ];
-    // Workaround: build owned strings for the borrow checker
     let pn_str = part_number.to_string();
     let q: Vec<(&str, &str)> = vec![("partNumber", pn_str.as_str()), ("uploadId", upload_id)];
     let resp = signed_request(cfg, "PUT", &part_url, &q, &[], data)?;

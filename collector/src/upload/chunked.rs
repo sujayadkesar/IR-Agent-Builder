@@ -20,7 +20,7 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs::File;
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
