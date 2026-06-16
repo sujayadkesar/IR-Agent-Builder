@@ -21,9 +21,10 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
             |ui| {
                 collector_output_card(ui, app);
                 ui.add_space(16.0);
-                build_log_card(ui, app);
-                ui.add_space(16.0);
                 issues_block(ui, app);
+                // Build log fills whatever vertical space is left in the column.
+                let log_h = ui.available_height().max(240.0);
+                build_log_card(ui, app, log_h);
             },
         );
 
@@ -98,7 +99,7 @@ fn output_meta(ui: &mut egui::Ui, label: &str, value: &str) {
     });
 }
 
-fn build_log_card(ui: &mut egui::Ui, app: &App) {
+fn build_log_card(ui: &mut egui::Ui, app: &App, height: f32) {
     theme::card_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
         section_label(ui, "Build Log (live)");
@@ -112,7 +113,7 @@ fn build_log_card(ui: &mut egui::Ui, app: &App) {
 
         frame.show(ui, |ui| {
             egui::ScrollArea::vertical()
-                .max_height(320.0)
+                .max_height((height - 64.0).max(160.0))
                 .auto_shrink([false, false])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
@@ -257,7 +258,11 @@ fn build_actions_card(ui: &mut egui::Ui, app: &mut App) {
         let can_build = issues.is_empty() && !is_running;
 
         // Primary BUILD button — solid blue.
-        let label = if is_running { "Building…" } else { "▶  BUILD COLLECTOR" };
+        let label = if is_running {
+            format!("{}  Building…", egui_phosphor::regular::SPINNER)
+        } else {
+            format!("{}  BUILD COLLECTOR", egui_phosphor::regular::PLAY)
+        };
         let build_btn = egui::Button::new(
             egui::RichText::new(label).strong().color(egui::Color32::WHITE),
         )
@@ -274,7 +279,10 @@ fn build_actions_card(ui: &mut egui::Ui, app: &mut App) {
         ui.add_space(8.0);
 
         // Stop Build (disabled placeholder — real cancellation is Phase 5+)
-        let stop_btn = secondary_button("■  Stop Build", ui.available_width());
+        let stop_btn = secondary_button(
+            &format!("{}  Stop Build", egui_phosphor::regular::STOP),
+            ui.available_width(),
+        );
         let _ = ui.add_enabled(is_running, stop_btn);
         ui.add_space(8.0);
 
@@ -284,7 +292,10 @@ fn build_actions_card(ui: &mut egui::Ui, app: &mut App) {
             .as_ref()
             .and_then(|b| b.result_path.as_ref())
             .is_some();
-        let open_btn = secondary_button("⊞  Open Output Folder", ui.available_width());
+        let open_btn = secondary_button(
+            &format!("{}  Open Output Folder", egui_phosphor::regular::FOLDER_OPEN),
+            ui.available_width(),
+        );
         if ui.add_enabled(has_output, open_btn).clicked() {
             if let Some(p) = app.build.as_ref().and_then(|b| b.result_path.as_ref()) {
                 reveal_in_explorer(p);
@@ -354,7 +365,7 @@ fn download_card(ui: &mut egui::Ui, app: &App) {
             .is_some();
 
         let download_btn = egui::Button::new(
-            egui::RichText::new("↓  Download Executable")
+            egui::RichText::new(format!("{}  Download Executable", egui_phosphor::regular::DOWNLOAD_SIMPLE))
                 .strong()
                 .color(egui::Color32::WHITE),
         )
@@ -371,14 +382,20 @@ fn download_card(ui: &mut egui::Ui, app: &App) {
 
         ui.horizontal(|ui| {
             let half = (ui.available_width() - 6.0) / 2.0;
-            let sha_btn = secondary_button("SHA256", half);
+            let sha_btn = secondary_button(
+                &format!("{}  SHA256", egui_phosphor::regular::FINGERPRINT),
+                half,
+            );
             if ui.add_enabled(has_output, sha_btn).clicked() {
                 if let Some(sha) = app.build.as_ref().and_then(|b| b.result_sha256.as_ref()) {
                     ui.output_mut(|o| o.copied_text = sha.clone());
                 }
             }
             ui.add_space(6.0);
-            let path_btn = secondary_button("Copy Path", half);
+            let path_btn = secondary_button(
+                &format!("{}  Copy Path", egui_phosphor::regular::COPY),
+                half,
+            );
             if ui.add_enabled(has_output, path_btn).clicked() {
                 if let Some(p) = app.build.as_ref().and_then(|b| b.result_path.as_ref()) {
                     ui.output_mut(|o| o.copied_text = p.display().to_string());

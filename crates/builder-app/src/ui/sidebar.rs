@@ -18,67 +18,69 @@ const STEPS: &[(u8, &str, &str)] = &[
 ];
 
 pub fn view(ui: &mut egui::Ui, app: &mut App) {
-    section_label(ui, "BUILD STEPS");
-    ui.add_space(4.0);
+    // Reserve room for the pinned Export action at the very bottom; the steps +
+    // profile scroll in the space above so nothing is ever clipped, even at the
+    // minimum window height.
+    let export_block_h = if app.export_error.is_some() { 96.0 } else { 52.0 };
+    let scroll_h = (ui.available_height() - export_block_h).max(120.0);
 
-    let catalog_ok = app.catalog.is_ok();
-    for &(id, title, subtitle) in STEPS {
-        let state = if app.current_step == id {
-            StepState::Active
-        } else if app.current_step > id && step_complete(app, id, catalog_ok) {
-            StepState::Done
-        } else if app.current_step > id {
-            StepState::Visited
-        } else {
-            StepState::Future
-        };
-        if step_row(ui, id, title, subtitle, state).clicked() {
-            app.current_step = id;
-        }
-        ui.add_space(2.0);
-    }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .max_height(scroll_h)
+        .show(ui, |ui| {
+            section_label(ui, "BUILD STEPS");
+            ui.add_space(6.0);
 
-    ui.add_space(20.0);
-    profile_card(ui, &app.spec, app.catalog.as_ref().ok());
-
-    // Pin the Export button to the bottom of the sidebar.
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-        ui.add_space(8.0);
-        let btn = egui::Button::new(
-            egui::RichText::new("Export Summary (JSON)")
-                .size(13.0)
-                .color(theme::ACCENT),
-        )
-        .fill(theme::BG_PANEL)
-        .stroke(egui::Stroke::new(1.0, theme::ACCENT))
-        .rounding(egui::Rounding::same(6.0))
-        .min_size(egui::vec2(ui.available_width(), 32.0));
-        if ui.add(btn).clicked() {
-            match rfd::FileDialog::new()
-                .set_file_name("dfir-summary.json")
-                .add_filter("JSON", &["json"])
-                .save_file()
-            {
-                Some(path) => {
-                    let json = serde_json::to_string_pretty(&app.spec).unwrap_or_default();
-                    if let Err(e) = std::fs::write(&path, json) {
-                        app.export_error = Some(format!(
-                            "Export failed ({}): {}",
-                            path.display(),
-                            e
-                        ));
-                    } else {
-                        app.export_error = None;
-                    }
+            let catalog_ok = app.catalog.is_ok();
+            for &(id, title, subtitle) in STEPS {
+                let state = if app.current_step == id {
+                    StepState::Active
+                } else if app.current_step > id && step_complete(app, id, catalog_ok) {
+                    StepState::Done
+                } else if app.current_step > id {
+                    StepState::Visited
+                } else {
+                    StepState::Future
+                };
+                if step_row(ui, id, title, subtitle, state).clicked() {
+                    app.current_step = id;
                 }
-                None => {}
+                ui.add_space(3.0);
+            }
+
+            ui.add_space(18.0);
+            profile_card(ui, &app.spec, app.catalog.as_ref().ok());
+        });
+
+    // ---- Pinned Export action (always visible) ----
+    ui.add_space(8.0);
+    let btn = egui::Button::new(
+        egui::RichText::new(format!("{}  Export Summary (JSON)", egui_phosphor::regular::EXPORT))
+            .size(13.0)
+            .color(theme::ACCENT),
+    )
+    .fill(theme::BG_CARD)
+    .stroke(egui::Stroke::new(1.0, theme::ACCENT))
+    .rounding(egui::Rounding::same(6.0))
+    .min_size(egui::vec2(ui.available_width(), 34.0));
+    if ui.add(btn).clicked() {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name("dfir-summary.json")
+            .add_filter("JSON", &["json"])
+            .save_file()
+        {
+            let json = serde_json::to_string_pretty(&app.spec).unwrap_or_default();
+            if let Err(e) = std::fs::write(&path, json) {
+                app.export_error = Some(format!("Export failed ({}): {}", path.display(), e));
+            } else {
+                app.export_error = None;
             }
         }
-        if let Some(ref msg) = app.export_error {
-            ui.add_space(4.0);
-            ui.colored_label(egui::Color32::from_rgb(220, 80, 80), msg);
-        }
-    });
+    }
+    if let Some(ref msg) = app.export_error {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(msg).size(11.0).color(theme::DANGER));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -96,7 +98,7 @@ fn step_row(
     subtitle: &str,
     state: StepState,
 ) -> egui::Response {
-    let row_height = 52.0;
+    let row_height = 54.0;
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), row_height),
         egui::Sense::click(),
@@ -108,68 +110,69 @@ fn step_row(
         _ => egui::Color32::TRANSPARENT,
     };
     let painter = ui.painter();
-    painter.rect_filled(rect, egui::Rounding::same(6.0), bg);
+    painter.rect_filled(rect, egui::Rounding::same(8.0), bg);
 
     if matches!(state, StepState::Active) {
         // Left edge accent bar.
-        let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(rect.left(), rect.top() + 6.0),
+            egui::vec2(3.0, rect.height() - 12.0),
+        );
         painter.rect_filled(bar, egui::Rounding::same(2.0), theme::ACCENT);
     }
 
     // Numbered circle on the left.
-    let circle_center = egui::pos2(rect.left() + 24.0, rect.center().y);
+    let circle_center = egui::pos2(rect.left() + 26.0, rect.center().y);
     let (circle_bg, circle_fg) = match state {
         StepState::Done    => (theme::SUCCESS, egui::Color32::WHITE),
         StepState::Active  => (theme::ACCENT, egui::Color32::WHITE),
         StepState::Visited => (theme::MUTED_DIM, egui::Color32::WHITE),
         StepState::Future  => (theme::BG_CARD, theme::MUTED),
     };
-    painter.circle_filled(circle_center, 13.0, circle_bg);
-    let circle_text = if matches!(state, StepState::Done) {
-        "✓".to_string()
+    painter.circle_filled(circle_center, 14.0, circle_bg);
+    if matches!(state, StepState::Done) {
+        painter.text(
+            circle_center,
+            egui::Align2::CENTER_CENTER,
+            egui_phosphor::regular::CHECK,
+            egui::FontId::proportional(15.0),
+            circle_fg,
+        );
     } else {
-        n.to_string()
-    };
-    painter.text(
-        circle_center,
-        egui::Align2::CENTER_CENTER,
-        circle_text,
-        egui::FontId::proportional(13.0),
-        circle_fg,
-    );
+        painter.text(
+            circle_center,
+            egui::Align2::CENTER_CENTER,
+            n.to_string(),
+            egui::FontId::proportional(13.0),
+            circle_fg,
+        );
+    }
 
     // Title + subtitle, vertically centered to the right of the circle.
-    let text_x = rect.left() + 48.0;
+    let text_x = rect.left() + 50.0;
     let title_color = match state {
-        StepState::Active => theme::TEXT,
         StepState::Future => theme::MUTED,
         _ => theme::TEXT,
     };
+    let subtitle_color = if matches!(state, StepState::Active) {
+        egui::Color32::from_rgb(0xB9, 0xCD, 0xF7) // light blue — readable on the accent tint
+    } else {
+        theme::MUTED
+    };
     painter.text(
-        egui::pos2(text_x, rect.center().y - 8.0),
+        egui::pos2(text_x, rect.center().y - 9.0),
         egui::Align2::LEFT_CENTER,
         title,
-        egui::FontId::proportional(13.5),
+        egui::FontId::proportional(14.0),
         title_color,
     );
     painter.text(
-        egui::pos2(text_x, rect.center().y + 8.0),
+        egui::pos2(text_x, rect.center().y + 10.0),
         egui::Align2::LEFT_CENTER,
         subtitle,
         egui::FontId::proportional(11.0),
-        theme::MUTED,
+        subtitle_color,
     );
-
-    // Right-side checkmark for completed steps (in addition to the numbered circle).
-    if matches!(state, StepState::Done) {
-        painter.text(
-            egui::pos2(rect.right() - 16.0, rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            "✓",
-            egui::FontId::proportional(14.0),
-            theme::SUCCESS,
-        );
-    }
 
     response
 }
