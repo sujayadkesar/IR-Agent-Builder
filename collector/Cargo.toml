@@ -54,6 +54,10 @@ ntfs = "0.4"
 anyhow = "1"
 thiserror = "1"
 
+# Shared crypto — single bit-compatible implementation of the credential
+# vault, used by BOTH the builder (encrypt) and this collector (decrypt).
+shared-crypto = { path = "../crates/shared-crypto" }
+
 # ----- Windows-specific dependencies -----
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

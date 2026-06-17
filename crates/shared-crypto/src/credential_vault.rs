@@ -198,6 +198,35 @@ mod tests {
     }
 
     #[test]
+    fn wire_path_builder_to_collector_roundtrip() {
+        // Mirrors the real contract: the builder's `embedded_config` stores the
+        // vault as base64 + a hex HMAC; the collector base64-decodes, verifies
+        // the HMAC, then decrypts. This is the cross-boundary check that was
+        // missing — it pins the 4-distinct-window XOR key derivation so the
+        // collector and builder can never silently diverge again.
+        let creds = Credentials {
+            access_key_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string(),
+        };
+        let build_id = "c9977920-e8c9-448e-a9a4-fc4aa1fdb567";
+        let ts = "2026-06-16T12:00:00.000Z";
+
+        let vault = encrypt(&creds, build_id, ts).expect("encrypt");
+
+        // --- wire transfer (exactly what build_from_spec writes) ---
+        let blob = base64::engine::general_purpose::STANDARD
+            .decode(&vault.blob_base64)
+            .expect("base64 decode");
+        let hmac = hex::decode(&vault.hmac_hex).expect("hex decode");
+
+        // --- collector side (exactly what collector/main.rs does) ---
+        assert!(verify_hmac(&blob, &hmac, build_id), "HMAC must verify");
+        let got = decrypt(&blob, build_id, ts).expect("collector decrypt");
+        assert_eq!(got.access_key_id, creds.access_key_id);
+        assert_eq!(got.secret_access_key, creds.secret_access_key);
+    }
+
+    #[test]
     fn wrong_build_id_fails_decrypt() {
         let creds = Credentials {
             access_key_id: "AKIA".into(),

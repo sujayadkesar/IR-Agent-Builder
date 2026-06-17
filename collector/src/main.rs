@@ -13,7 +13,6 @@
 
 mod artifacts;
 mod config;
-mod credential_vault;
 mod crypto;
 mod elevation;
 mod logging;
@@ -98,17 +97,18 @@ fn run() -> Result<()> {
                 &s3.credential_vault,
             ).context("decoding vault base64")?;
 
-            // Verify integrity before decryption
+            // Verify integrity before decryption (constant-time HMAC compare).
             if !s3.credential_vault_hmac.is_empty() {
-                let expected_hmac: [u8; 32] = hex::decode(&s3.credential_vault_hmac)?
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("invalid vault HMAC length"))?;
-                if !credential_vault::verify_vault_integrity(&vault_bytes, &expected_hmac, &cfg.build_id) {
+                let expected_hmac = hex::decode(&s3.credential_vault_hmac)
+                    .map_err(|_| anyhow::anyhow!("invalid vault HMAC hex"))?;
+                if !shared_crypto::credential_vault::verify_hmac(
+                    &vault_bytes, &expected_hmac, &cfg.build_id,
+                ) {
                     anyhow::bail!("credential vault integrity check failed — binary may have been tampered with");
                 }
             }
 
-            let creds = credential_vault::decrypt_vault(
+            let creds = shared_crypto::credential_vault::decrypt(
                 &vault_bytes,
                 &cfg.build_id,
                 &cfg.build_timestamp,
@@ -158,12 +158,25 @@ fn run() -> Result<()> {
     log::info!("Elevation OK (is_elevated={})", elevation::is_elevated());
 
     // 7. Determine if streaming upload should be used
-    let estimated_size_mb: u64 = cfg.artifacts.iter()
-        .filter_map(|_| Some(50u64)) // rough average per artifact
-        .sum();
-    let use_streaming = upload::chunked::should_use_streaming(
+    // Rough estimate: ~50 MB average per selected artifact.
+    let estimated_size_mb: u64 = cfg.artifacts.len() as u64 * 50;
+    let want_streaming = upload::chunked::should_use_streaming(
         &scratch, &cfg.chunk_upload, estimated_size_mb
     );
+    // SECURITY: the chunked streaming path does NOT yet encrypt (or properly
+    // compress) its output. If X509 encryption is configured, never stream —
+    // fall back to the traditional encrypt-then-upload path so we never ship
+    // plaintext evidence to S3. (Streaming+encryption is a tracked follow-up.)
+    let encryption_active =
+        cfg.encryption.scheme == "x509" && !cfg.encryption.rsa_public_key_pem.is_empty();
+    let use_streaming = want_streaming && !encryption_active;
+    if want_streaming && encryption_active {
+        log::warn!(
+            "Chunked streaming was selected but X509 encryption is enabled; the streaming \
+             path does not encrypt yet. Falling back to traditional encrypt-then-upload to \
+             avoid uploading plaintext evidence."
+        );
+    }
     log::info!("Upload strategy: {}", if use_streaming { "STREAMING CHUNKS" } else { "TRADITIONAL ZIP" });
 
     // 8. Start chunked uploader thread if streaming
@@ -191,6 +204,8 @@ fn run() -> Result<()> {
     };
 
     // 9. VSS snapshot (Windows only) or equivalent (Linux: best-effort)
+    #[cfg(target_os = "windows")]
+    let vss_mount: Option<PathBuf>;
     let collect_root: PathBuf;
     #[cfg(target_os = "windows")]
     {
@@ -208,7 +223,8 @@ fn run() -> Result<()> {
         } else {
             None
         };
-        collect_root = vss_root.clone().unwrap_or_else(|| PathBuf::from("C:\\"));
+        vss_mount = vss_root.clone();
+        collect_root = vss_root.unwrap_or_else(|| PathBuf::from("C:\\"));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -282,13 +298,14 @@ fn run() -> Result<()> {
     std::fs::write(&report_path, serde_json::to_vec_pretty(&summary)?)
         .context("writing run_report.json")?;
 
-    // 13. Release VSS snapshot (Windows only)
+    // 13. Release VSS snapshot junction (Windows only).
     #[cfg(target_os = "windows")]
     {
-        if cfg.use_vss {
-            // vss_root was consumed above, but the snapshot ID is still active
-            // best-effort release
-            log::info!("Releasing VSS snapshot (best-effort)");
+        if let Some(mount) = vss_mount.as_ref() {
+            log::info!("Releasing VSS snapshot junction at {}", mount.display());
+            if let Err(e) = vss::release_snapshot(mount) {
+                log::warn!("VSS junction release failed (non-fatal): {e:#}");
+            }
         }
     }
 
