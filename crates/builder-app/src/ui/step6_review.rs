@@ -102,7 +102,28 @@ fn output_meta(ui: &mut egui::Ui, label: &str, value: &str) {
 fn build_log_card(ui: &mut egui::Ui, app: &App, height: f32) {
     theme::card_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        section_label(ui, "Build Log (live)");
+        ui.horizontal(|ui| {
+            section_label(ui, "Build Log (live)");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Copy the full log to the clipboard — cargo errors are otherwise
+                // not selectable in the immediate-mode log pane.
+                let copy_btn = egui::Button::new(
+                    egui::RichText::new(format!("{}  Copy log", egui_phosphor::regular::COPY))
+                        .size(11.5)
+                        .color(theme::TEXT),
+                )
+                .fill(theme::BG_INPUT)
+                .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                .rounding(egui::Rounding::same(4.0));
+                let has_logs = app.build.as_ref().is_some_and(|b| !b.logs.is_empty());
+                if ui.add_enabled(has_logs, copy_btn).clicked() {
+                    if let Some(b) = app.build.as_ref() {
+                        let text = b.logs.join("\n");
+                        ui.output_mut(|o| o.copied_text = text);
+                    }
+                }
+            });
+        });
         ui.add_space(6.0);
 
         let frame = egui::Frame::default()
@@ -197,7 +218,7 @@ fn render_log_line(ui: &mut egui::Ui, line: &str) {
         },
     );
 
-    ui.add(egui::Label::new(job).wrap());
+    ui.add(egui::Label::new(job).wrap().selectable(true));
 }
 
 fn strip_timestamp(line: &str) -> (Option<&str>, &str) {
