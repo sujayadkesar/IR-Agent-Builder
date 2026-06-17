@@ -12,6 +12,14 @@
 //! `x-amz-server-side-encryption: aws:kms` plus optional
 //! `x-amz-server-side-encryption-aws-kms-key-id` headers, matching §3.4.
 //!
+//! Addressing style:
+//!   - AWS (no custom endpoint): virtual-hosted — `{bucket}.s3.{region}.amazonaws.com`,
+//!     bucket lives in the host, request path is just `/{key}`.
+//!   - Custom endpoint (MinIO/Ceph/etc.): path-style — host is the endpoint,
+//!     the bucket is the FIRST path segment: `/{bucket}/{key}`.
+//! Both the request URL and the SigV4 canonical URI use the same path, and the
+//! signed `host` header includes the port when the endpoint specifies one.
+//!
 //! Threshold for multipart: 100MB single-shot, 16MB parts above that.
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -58,10 +66,11 @@ pub fn upload(cfg: &S3Cfg, file: &Path, object_key: &str) -> Result<()> {
 
 fn endpoint_host(cfg: &S3Cfg) -> String {
     if let Some(ep) = &cfg.endpoint {
-        // Custom endpoint (MinIO, etc.). Strip scheme.
+        // Custom endpoint (MinIO, etc.). Strip scheme and any trailing slash.
         return ep
             .trim_start_matches("https://")
             .trim_start_matches("http://")
+            .trim_end_matches('/')
             .to_string();
     }
     // AWS S3 virtual-hosted style.
@@ -77,11 +86,28 @@ fn endpoint_scheme(cfg: &S3Cfg) -> &str {
     "https"
 }
 
+/// The request path (leading slash, key percent-encoded). For AWS this is just
+/// `/{key}` (the bucket is in the virtual-hosted host); for a custom endpoint
+/// it is path-style `/{bucket}/{key}`. The SigV4 canonical URI is derived from
+/// the same URL, so this keeps the signature and the request in lock-step.
+fn object_path(cfg: &S3Cfg, key: &str) -> String {
+    if cfg.endpoint.is_some() {
+        format!("/{}/{}", cfg.bucket, urlencode_path(key))
+    } else {
+        format!("/{}", urlencode_path(key))
+    }
+}
+
+/// Base object URL (no query string).
+fn object_url(cfg: &S3Cfg, key: &str) -> String {
+    format!("{}://{}{}", endpoint_scheme(cfg), endpoint_host(cfg), object_path(cfg, key))
+}
+
 fn put_object_single(cfg: &S3Cfg, file: &Path, key: &str) -> Result<()> {
     let mut f = File::open(file).context("open file for upload")?;
     let mut body = Vec::new();
     f.read_to_end(&mut body)?;
-    let url = format!("{}://{}/{}", endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key));
+    let url = object_url(cfg, key);
     log::info!("S3 PutObject -> {}", url);
     let resp = signed_request(cfg, "PUT", &url, &[], &kms_headers(cfg), &body)?;
     if resp.status() / 100 != 2 {
@@ -108,7 +134,7 @@ fn put_object_single(cfg: &S3Cfg, file: &Path, key: &str) -> Result<()> {
 
 fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Result<()> {
     // 1. CreateMultipartUpload — POST /{key}?uploads
-    let url = format!("{}://{}/{}?uploads", endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key));
+    let url = format!("{}?uploads", object_url(cfg, key));
     let resp = signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])?;
     if resp.status() / 100 != 2 {
         bail!("CreateMultipartUpload failed: status={} body={}", resp.status(), resp.body);
@@ -130,10 +156,8 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
         f.read_exact(&mut buf)?;
 
         let part_url = format!(
-            "{}://{}/{}?partNumber={}&uploadId={}",
-            endpoint_scheme(cfg),
-            endpoint_host(cfg),
-            urlencode_path(key),
+            "{}?partNumber={}&uploadId={}",
+            object_url(cfg, key),
             part_num,
             urlencode_query(&upload_id),
         );
@@ -178,17 +202,10 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
     }
 
     // 3. CompleteMultipartUpload — POST /{key}?uploadId=...
-    let mut body = String::new();
-    body.push_str("<CompleteMultipartUpload>");
-    for (n, e) in &etags {
-        body.push_str(&format!("<Part><PartNumber>{n}</PartNumber><ETag>\"{e}\"</ETag></Part>"));
-    }
-    body.push_str("</CompleteMultipartUpload>");
+    let body = complete_body(&etags.iter().map(|(n, e)| (*n as u32, e.clone())).collect::<Vec<_>>());
     let cu = format!(
-        "{}://{}/{}?uploadId={}",
-        endpoint_scheme(cfg),
-        endpoint_host(cfg),
-        urlencode_path(key),
+        "{}?uploadId={}",
+        object_url(cfg, key),
         urlencode_query(&upload_id),
     );
     let resp = signed_request(cfg, "POST", &cu, &[("uploadId", &upload_id)], &[], body.as_bytes())?;
@@ -201,21 +218,30 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
 
 fn abort_multipart(cfg: &S3Cfg, key: &str, upload_id: &str) -> Result<()> {
     let url = format!(
-        "{}://{}/{}?uploadId={}",
-        endpoint_scheme(cfg),
-        endpoint_host(cfg),
-        urlencode_path(key),
+        "{}?uploadId={}",
+        object_url(cfg, key),
         urlencode_query(upload_id),
     );
     let _ = signed_request(cfg, "DELETE", &url, &[("uploadId", upload_id)], &[], &[]);
     Ok(())
 }
 
+/// Build the CompleteMultipartUpload XML body from (part_number, etag) pairs.
+fn complete_body(etags: &[(u32, String)]) -> String {
+    let mut body = String::new();
+    body.push_str("<CompleteMultipartUpload>");
+    for (n, e) in etags {
+        body.push_str(&format!("<Part><PartNumber>{n}</PartNumber><ETag>\"{e}\"</ETag></Part>"));
+    }
+    body.push_str("</CompleteMultipartUpload>");
+    body
+}
+
 // ---- Public API for chunked uploader ----
 
 pub fn create_multipart_upload(cfg: &S3Cfg, key: &str) -> Result<String> {
     let key = key.trim_start_matches('/');
-    let url = format!("{}://{}/{}?uploads", endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key));
+    let url = format!("{}?uploads", object_url(cfg, key));
     let resp = signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])?;
     if resp.status() / 100 != 2 {
         bail!("CreateMultipartUpload failed: status={} body={}", resp.status(), resp.body);
@@ -227,9 +253,10 @@ pub fn create_multipart_upload(cfg: &S3Cfg, key: &str) -> Result<String> {
 pub fn upload_part(cfg: &S3Cfg, key: &str, upload_id: &str, part_number: u32, data: &[u8]) -> Result<String> {
     let key = key.trim_start_matches('/');
     let part_url = format!(
-        "{}://{}/{}?partNumber={}&uploadId={}",
-        endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key),
-        part_number, urlencode_query(upload_id),
+        "{}?partNumber={}&uploadId={}",
+        object_url(cfg, key),
+        part_number,
+        urlencode_query(upload_id),
     );
     let pn_str = part_number.to_string();
     let q: Vec<(&str, &str)> = vec![("partNumber", pn_str.as_str()), ("uploadId", upload_id)];
@@ -244,15 +271,11 @@ pub fn upload_part(cfg: &S3Cfg, key: &str, upload_id: &str, part_number: u32, da
 
 pub fn complete_multipart_upload(cfg: &S3Cfg, key: &str, upload_id: &str, etags: &[(u32, String)]) -> Result<()> {
     let key = key.trim_start_matches('/');
-    let mut body = String::new();
-    body.push_str("<CompleteMultipartUpload>");
-    for (n, e) in etags {
-        body.push_str(&format!("<Part><PartNumber>{n}</PartNumber><ETag>\"{e}\"</ETag></Part>"));
-    }
-    body.push_str("</CompleteMultipartUpload>");
+    let body = complete_body(etags);
     let cu = format!(
-        "{}://{}/{}?uploadId={}",
-        endpoint_scheme(cfg), endpoint_host(cfg), urlencode_path(key), urlencode_query(upload_id),
+        "{}?uploadId={}",
+        object_url(cfg, key),
+        urlencode_query(upload_id),
     );
     let resp = signed_request(cfg, "POST", &cu, &[("uploadId", upload_id)], &[], body.as_bytes())?;
     if resp.status() / 100 != 2 {
@@ -297,6 +320,18 @@ impl SignedResp {
     }
 }
 
+/// The `host` value to sign — MUST match the `Host` header the HTTP client
+/// actually sends. ureq derives `Host` from the URL and INCLUDES a non-default
+/// port (e.g. MinIO on :9000), so the signed host must include it too; the
+/// `url` crate normalizes away default ports (:443/:80), matching ureq.
+fn header_host(parsed: &url::Url) -> Option<String> {
+    let h = parsed.host_str()?;
+    Some(match parsed.port() {
+        Some(p) => format!("{h}:{p}"),
+        None => h.to_string(),
+    })
+}
+
 /// Sign and execute a request. Returns the response (does not stream large bodies).
 fn signed_request(
     cfg: &S3Cfg,
@@ -307,10 +342,7 @@ fn signed_request(
     body: &[u8],
 ) -> Result<SignedResp> {
     let parsed = url::Url::parse(url).context("parse url")?;
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| anyhow!("no host in url"))?
-        .to_string();
+    let host = header_host(&parsed).ok_or_else(|| anyhow!("no host in url"))?;
     let canonical_uri = if parsed.path().is_empty() { "/" } else { parsed.path() };
     let now = Utc::now();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -436,4 +468,77 @@ fn parse_xml_tag(xml: &str, tag: &str) -> Option<String> {
     let start = xml.find(&open)? + open.len();
     let end = xml[start..].find(&close)? + start;
     Some(xml[start..end].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(endpoint: Option<&str>) -> S3Cfg {
+        S3Cfg {
+            bucket: "ir-evidence".to_string(),
+            region: "ap-south-1".to_string(),
+            access_key_id: "AKIA".to_string(),
+            secret_access_key: "secret".to_string(),
+            endpoint: endpoint.map(|s| s.to_string()),
+            sse_kms_key_id: None,
+            verify_tls: true,
+            prefix_template: String::new(),
+            credential_vault: String::new(),
+            credential_vault_hmac: String::new(),
+        }
+    }
+
+    #[test]
+    fn aws_uses_virtual_hosted_no_bucket_in_path() {
+        let c = cfg(None);
+        assert_eq!(endpoint_host(&c), "ir-evidence.s3.ap-south-1.amazonaws.com");
+        assert_eq!(object_path(&c, "SITE/HOST/file.zip"), "/SITE/HOST/file.zip");
+        assert_eq!(
+            object_url(&c, "SITE/HOST/file.zip"),
+            "https://ir-evidence.s3.ap-south-1.amazonaws.com/SITE/HOST/file.zip"
+        );
+    }
+
+    #[test]
+    fn custom_endpoint_uses_path_style_with_bucket() {
+        let c = cfg(Some("http://minio:9000"));
+        assert_eq!(endpoint_host(&c), "minio:9000");
+        assert_eq!(endpoint_scheme(&c), "http");
+        // The bucket MUST be the first path segment for path-style requests.
+        assert_eq!(object_path(&c, "SITE/HOST/file.zip"), "/ir-evidence/SITE/HOST/file.zip");
+        assert_eq!(
+            object_url(&c, "SITE/HOST/file.zip"),
+            "http://minio:9000/ir-evidence/SITE/HOST/file.zip"
+        );
+    }
+
+    #[test]
+    fn endpoint_trailing_slash_is_trimmed() {
+        let c = cfg(Some("https://s3.example.com/"));
+        assert_eq!(endpoint_host(&c), "s3.example.com");
+        assert_eq!(object_url(&c, "k"), "https://s3.example.com/ir-evidence/k");
+    }
+
+    #[test]
+    fn signed_host_includes_nondefault_port_but_not_default() {
+        // Custom port must be in the signed host (matches ureq's Host header).
+        let u = url::Url::parse("http://minio:9000/ir-evidence/k").unwrap();
+        assert_eq!(header_host(&u).unwrap(), "minio:9000");
+        // Default ports are normalized away by both the url crate and ureq.
+        let u2 = url::Url::parse("https://ir-evidence.s3.ap-south-1.amazonaws.com/k").unwrap();
+        assert_eq!(header_host(&u2).unwrap(), "ir-evidence.s3.ap-south-1.amazonaws.com");
+    }
+
+    #[test]
+    fn complete_body_is_well_formed() {
+        let b = complete_body(&[(1, "etag1".into()), (2, "etag2".into())]);
+        assert_eq!(
+            b,
+            "<CompleteMultipartUpload>\
+             <Part><PartNumber>1</PartNumber><ETag>\"etag1\"</ETag></Part>\
+             <Part><PartNumber>2</PartNumber><ETag>\"etag2\"</ETag></Part>\
+             </CompleteMultipartUpload>"
+        );
+    }
 }
