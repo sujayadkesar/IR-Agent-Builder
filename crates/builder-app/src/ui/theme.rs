@@ -31,6 +31,13 @@ pub const MUTED:          egui::Color32 = egui::Color32::from_rgb(0x8B, 0x95, 0x
 pub const MUTED_DIM:      egui::Color32 = egui::Color32::from_rgb(0x5A, 0x63, 0x72);
 
 pub fn apply(ctx: &egui::Context) {
+    // Register the Phosphor icon font (Private-Use-Area glyphs) as a fallback
+    // on both the proportional and monospace families, so icon constants like
+    // `egui_phosphor::regular::CHECK` render anywhere.
+    let mut fonts = egui::FontDefinitions::default();
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    ctx.set_fonts(fonts);
+
     let mut visuals = egui::Visuals::dark();
 
     visuals.panel_fill = BG_BASE;
@@ -75,16 +82,30 @@ pub fn apply(ctx: &egui::Context) {
 
     ctx.set_visuals(visuals);
 
-    // Larger default body text — egui's default is small for dense UIs.
+    // Type scale — slightly larger than egui's dense defaults for readability
+    // on hi-DPI displays, with a clear hierarchy.
     let mut style = (*ctx.style()).clone();
     use egui::{FontFamily, FontId, TextStyle};
-    style.text_styles.insert(TextStyle::Small,     FontId::new(11.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Body,      FontId::new(13.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Button,    FontId::new(13.0, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Small,     FontId::new(11.5, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Body,      FontId::new(14.0, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Button,    FontId::new(14.0, FontFamily::Proportional));
     style.text_styles.insert(TextStyle::Heading,   FontId::new(20.0, FontFamily::Proportional));
-    style.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
+    style.text_styles.insert(TextStyle::Monospace, FontId::new(12.5, FontFamily::Monospace));
+
+    // Global spacing — roomier item gaps and a comfortable button padding so
+    // controls don't feel cramped.
+    style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+    style.spacing.button_padding = egui::vec2(10.0, 6.0);
+    style.spacing.interact_size.y = 26.0;
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, ACCENT);
+
     ctx.set_style(style);
 }
+
+/// Max readable width for single-column form content. Keeps forms from
+/// stretching edge-to-edge on wide windows (the "floating labels in a void"
+/// look). Step 2 (dense list) and Step 6 (two-column) opt out.
+pub const CONTENT_MAX_WIDTH: f32 = 860.0;
 
 // ---------- Frame helpers ----------
 

@@ -78,6 +78,10 @@ struct RawArtifact {
     sources: Vec<serde_json::Value>,
 }
 
+/// Full artifact metadata parsed from YAML. Several fields (author, version,
+/// references, deps, yaml_name, ...) are retained for completeness / future
+/// features even though the current UI doesn't render them.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ArtifactDef {
     /// User-facing ID (legacy-stripped). e.g. `execution.prefetch`.
@@ -107,6 +111,9 @@ pub struct CategoryGroup {
     pub items: Vec<ArtifactDef>,
 }
 
+/// `id`/`color`/`description` come from the YAML schema but aren't surfaced in
+/// the current bundle chips; kept for round-tripping and future use.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct BundleDef {
     pub id: String,
@@ -128,6 +135,8 @@ pub struct BundleDef {
 pub struct Catalog {
     pub artifacts: HashMap<String, ArtifactDef>,
     pub bundles: Vec<BundleDef>,
+    /// Catalog root dir — retained for reload/watch features.
+    #[allow(dead_code)]
     pub root: PathBuf,
 }
 

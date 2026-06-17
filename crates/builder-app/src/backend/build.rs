@@ -14,6 +14,10 @@ use super::embedded_config;
 use super::ledger::{self, BuildRecord};
 use crate::spec::{BuildSpec, TargetPlatform, UploadKind};
 
+// `build_id` is carried on these events/handle for traceability and future
+// UI use (e.g. cross-referencing the ledger), even though the current frame
+// loop keys off the live build state rather than the id.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum BuildEvent {
     Log(String),
@@ -31,6 +35,7 @@ pub enum BuildEvent {
 
 pub struct BuildHandle {
     pub rx: mpsc::Receiver<BuildEvent>,
+    #[allow(dead_code)]
     pub build_id: String,
 }
 

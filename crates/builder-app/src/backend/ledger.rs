@@ -97,6 +97,9 @@ impl Ledger {
         Ok(())
     }
 
+    /// Reserved for a future "past builds" panel; the ledger records every
+    /// build but no UI lists them yet.
+    #[allow(dead_code)]
     pub fn list_recent(&self, limit: usize) -> Result<Vec<BuildSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT build_id, build_timestamp, target_platform, site_code, artifact_count, \
@@ -118,6 +121,8 @@ impl Ledger {
     }
 }
 
+/// Returned by `list_recent` (reserved for the future "past builds" panel).
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct BuildSummary {
     pub build_id: String,
