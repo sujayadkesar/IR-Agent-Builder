@@ -8,10 +8,14 @@ use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 pub struct Keypair {
+    /// Retained for display/telemetry; not currently surfaced in the UI.
+    #[allow(dead_code)]
     pub bits: usize,
     pub public_pem: String,
     pub private_pem: String,
     pub fingerprint_sha256: String,
+    /// Keygen duration — retained for telemetry; not surfaced in the UI.
+    #[allow(dead_code)]
     pub elapsed_ms: u128,
 }
 

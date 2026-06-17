@@ -13,10 +13,9 @@
 //! `x-amz-server-side-encryption-aws-kms-key-id` headers, matching §3.4.
 //!
 //! Addressing style:
-//!   - AWS (no custom endpoint): virtual-hosted — `{bucket}.s3.{region}.amazonaws.com`,
-//!     bucket lives in the host, request path is just `/{key}`.
-//!   - Custom endpoint (MinIO/Ceph/etc.): path-style — host is the endpoint,
-//!     the bucket is the FIRST path segment: `/{bucket}/{key}`.
+//!   - AWS (no custom endpoint): virtual-hosted `{bucket}.s3.{region}.amazonaws.com`, path `/{key}`.
+//!   - Custom endpoint (MinIO/Ceph/etc.): path-style, bucket is the first path segment `/{bucket}/{key}`.
+//!
 //! Both the request URL and the SigV4 canonical URI use the same path, and the
 //! signed `host` header includes the port when the endpoint specifies one.
 //!

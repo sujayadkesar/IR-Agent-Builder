@@ -5,48 +5,36 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetPlatform {
+    #[default]
     Windows,
     Linux,
 }
 
-impl Default for TargetPlatform {
-    fn default() -> Self { TargetPlatform::Windows }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UploadKind {
+    #[default]
     Local,
     S3,
 }
 
-impl Default for UploadKind {
-    fn default() -> Self { UploadKind::Local }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EncryptionScheme {
+    #[default]
     X509,
     None,
 }
 
-impl Default for EncryptionScheme {
-    fn default() -> Self { EncryptionScheme::X509 }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
+    #[default]
     Jsonl,
     Csv,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self { OutputFormat::Jsonl }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
