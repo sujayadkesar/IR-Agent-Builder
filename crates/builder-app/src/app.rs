@@ -222,6 +222,9 @@ impl App {
         self.keypair_job = Some(KeypairJob { rx, started_at, bits });
     }
 
+    // Mirrors the S3 form fields one-to-one; grouping them into a struct would
+    // just move the noise, so the arg count is allowed here intentionally.
+    #[allow(clippy::too_many_arguments)]
     pub fn start_s3_validate(
         &mut self,
         bucket: String,
@@ -285,7 +288,7 @@ fn detect_workspace_root() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let mut cur = exe.parent().map(|p| p.to_path_buf());
         while let Some(p) = cur {
-            if std::fs::read_to_string(p.join("Cargo.toml")).map_or(false, |s| s.contains("[workspace]")) && p.join("artifacts").exists() {
+            if std::fs::read_to_string(p.join("Cargo.toml")).is_ok_and(|s| s.contains("[workspace]")) && p.join("artifacts").exists() {
                 return p;
             }
             cur = p.parent().map(|p| p.to_path_buf());

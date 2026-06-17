@@ -205,7 +205,7 @@ fn run() -> Result<()> {
 
     // 9. VSS snapshot (Windows only) or equivalent (Linux: best-effort)
     #[cfg(target_os = "windows")]
-    let mut vss_mount: Option<PathBuf> = None;
+    let vss_mount: Option<PathBuf>;
     let collect_root: PathBuf;
     #[cfg(target_os = "windows")]
     {
@@ -301,9 +301,9 @@ fn run() -> Result<()> {
     // 13. Release VSS snapshot junction (Windows only).
     #[cfg(target_os = "windows")]
     {
-        if let Some(mount) = vss_mount.take() {
+        if let Some(mount) = vss_mount.as_ref() {
             log::info!("Releasing VSS snapshot junction at {}", mount.display());
-            if let Err(e) = vss::release_snapshot(&mount) {
+            if let Err(e) = vss::release_snapshot(mount) {
                 log::warn!("VSS junction release failed (non-fatal): {e:#}");
             }
         }

@@ -78,7 +78,7 @@ fn run_yaml_artifact(
                         .collect();
                     let base = source.get("base")
                         .and_then(|v| v.as_str())
-                        .map(|b| std::path::PathBuf::from(b))
+                        .map(std::path::PathBuf::from)
                         .unwrap_or_else(|| collect_root.to_path_buf());
                     match patterns::collect(name, &base, scratch, &glob_strs) {
                         Ok(stats) => {

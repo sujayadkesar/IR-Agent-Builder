@@ -62,6 +62,9 @@ pub struct ValidateInput<'a> {
 
 pub struct ValidateResult {
     pub ok: bool,
+    /// HTTP status from the sentinel PutObject — retained for diagnostics; the
+    /// UI currently shows `message` instead.
+    #[allow(dead_code)]
     pub status: u16,
     pub message: String,
     pub test_key: String,

@@ -18,6 +18,13 @@
 //! The final S3 object is a multi-part ZIP where each part boundary aligns
 //! with artifact boundaries when possible.
 
+// This module is the EXPERIMENTAL chunked-streaming uploader (gated OFF when
+// X509 encryption is active — see main.rs). Its progress/abort API
+// (UploadProgress, get_progress, abort, is_complete, has_error, ...) is
+// reserved for when the streaming feature is completed (encryption + a
+// progress UI), so dead-code is allowed for the module rather than wired now.
+#![allow(dead_code)]
+
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs::File;
 use std::io::{Read, Write};
