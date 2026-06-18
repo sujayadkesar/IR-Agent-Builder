@@ -1,0 +1,12 @@
+# Statically link the MSVC C runtime (UCRT + vcruntime) into every binary.
+#
+# This matters most for the COLLECTOR: it is deployed to arbitrary Windows
+# endpoints that may NOT have the Visual C++ Redistributable installed. Without
+# this, a default Rust/MSVC build depends on VCRUNTIME140.dll / the UCRT and
+# will fail to launch on a clean machine (no window, no log, no ZIP) — which
+# looks exactly like "the agent did nothing". With crt-static the EXE is fully
+# self-contained, matching the tool's "no prerequisites on the remote host" goal.
+#
+# rustls (used by ureq) is pure Rust, so static CRT linking is safe here.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

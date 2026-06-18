@@ -150,10 +150,28 @@ fn run() -> Result<()> {
     eprintln!("DFIR Collector: persistent log -> {}", persistent_log.display());
     log::info!("hostname={hostname} site={} timestamp={timestamp}", cfg.site_code);
 
+    // Startup banner — one line that captures the whole collection profile, so
+    // the log immediately shows what this build was configured to do.
+    let output_target = match cfg.upload.kind.as_str() {
+        "local" => cfg.upload.local_path.clone().unwrap_or_else(|| "(default)".into()),
+        "s3" => cfg.upload.s3.as_ref().map(|s| format!("s3://{}", s.bucket)).unwrap_or_default(),
+        other => other.to_string(),
+    };
+    log::info!(
+        "[startup] profile: artifacts={} kape_targets={} use_vss={} encryption={} require_admin={} silent={} upload_kind={} output={}",
+        cfg.artifacts.len(), cfg.kape_targets.len(), cfg.use_vss, cfg.encryption.scheme,
+        cfg.require_admin, cfg.silent, cfg.upload.kind, output_target,
+    );
+
     // 6. Admin/root elevation check
     if cfg.require_admin && !elevation::is_elevated() {
-        log::error!("Not running with elevated privileges — aborting (require_admin=true)");
-        anyhow::bail!("Administrator/root privileges required");
+        log::error!(
+            "ABORTING BEFORE COLLECTION: not elevated but require_admin=true. \
+             No artifacts will be collected and no ZIP will be produced. \
+             Re-run this collector as Administrator/root, or rebuild with \
+             require_admin disabled (Step 5)."
+        );
+        anyhow::bail!("Administrator/root privileges required - re-run elevated");
     }
     log::info!("Elevation OK (is_elevated={})", elevation::is_elevated());
 
@@ -326,10 +344,21 @@ fn run() -> Result<()> {
         log::info!("Streaming upload finalized");
     } else {
         // Traditional: ZIP → encrypt → upload
-        log::info!("Building encrypted container...");
         let zip_path = scratch.parent().unwrap().join(format!("{collection_name}.zip"));
-        zipper::write_directory_as_zip(&scratch, &zip_path)?;
-        log::info!("ZIP container: {} ({} bytes)", zip_path.display(), std::fs::metadata(&zip_path)?.len());
+        log::info!(
+            "[zip] packing scratch dir {} -> {}",
+            scratch.display(), zip_path.display()
+        );
+        zipper::write_directory_as_zip(&scratch, &zip_path)
+            .with_context(|| format!("creating ZIP at {}", zip_path.display()))?;
+        // Explicit post-condition check — the #1 thing to confirm for "no ZIP".
+        match std::fs::metadata(&zip_path) {
+            Ok(m) => log::info!("[zip] OK: {} exists, {} bytes", zip_path.display(), m.len()),
+            Err(e) => {
+                log::error!("[zip] FAILED: {} does not exist after write: {e}", zip_path.display());
+                anyhow::bail!("ZIP container was not created at {}", zip_path.display());
+            }
+        }
 
         let container_path = if cfg.encryption.scheme == "x509" && !cfg.encryption.rsa_public_key_pem.is_empty() {
             let enc_path = zip_path.with_extension("zip.enc");
@@ -373,6 +402,11 @@ fn run() -> Result<()> {
         }
     }
 
+    let ok_count = (summary.artifacts.len() as u32).saturating_sub(summary.failures);
+    log::info!(
+        "[summary] artifacts: {} ok, {} failed | {} files, {} bytes collected | output={}",
+        ok_count, summary.failures, summary.total_files, summary.total_bytes, output_target,
+    );
     log::info!("DFIR Collector finished successfully");
     Ok(())
 }

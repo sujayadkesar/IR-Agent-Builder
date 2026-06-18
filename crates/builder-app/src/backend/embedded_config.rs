@@ -38,7 +38,7 @@ pub fn placeholder() -> serde_json::Value {
             "low_disk_threshold_mb": 0
         },
         "encryption": { "scheme": "none", "rsa_public_key_pem": "" },
-        "upload": { "kind": "local", "local_path": "C:\\IR\\Output", "s3": null }
+        "upload": { "kind": "local", "local_path": "", "s3": null }
     })
 }
 
@@ -80,11 +80,10 @@ pub fn build_from_spec(
         }),
         UploadKind::Local => json!({
             "kind": "local",
-            "local_path": if spec.upload.local_path.is_empty() {
-                default_local_path(target_platform).to_string()
-            } else {
-                spec.upload.local_path.clone()
-            },
+            // Verbatim from the analyst (Step 3 validation requires it to be
+            // non-empty). May contain env vars (%USERPROFILE%, %TEMP%, ...) that
+            // the collector expands on the target host.
+            "local_path": spec.upload.local_path,
             "s3": null,
         }),
     };
@@ -166,10 +165,3 @@ fn opt_str(s: &str) -> serde_json::Value {
     }
 }
 
-fn default_local_path(target_platform: &str) -> &'static str {
-    if target_platform == "windows" {
-        "C:\\IR\\Output"
-    } else {
-        "/tmp/dfir-output"
-    }
-}
