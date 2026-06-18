@@ -28,7 +28,7 @@
   "target_platform": "windows",
   "upload": {
     "kind": "local",
-    "local_path": "C:\\IR\\Output",
+    "local_path": "",
     "s3": null
   },
   "use_vss": true

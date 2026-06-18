@@ -18,11 +18,16 @@ pub fn generate_iam_policy(
         .map(|id| format!("{id}/*"))
         .unwrap_or_else(|| "${aws:username}/*".to_string());
 
+    // Always require HTTPS. Only require SSE-KMS when a KMS key is actually
+    // configured — otherwise the policy would demand an `x-amz-server-side-
+    // encryption: aws:kms` header that the collector does NOT send when no KMS
+    // key is set, which would deny EVERY PutObject (silent fleet-wide failure).
+    // This mirrors the collector's `kms_headers()`: SSE header iff KMS is set.
     let mut put_cond = json!({
-        "StringEquals": { "s3:x-amz-server-side-encryption": "aws:kms" },
         "Bool": { "aws:SecureTransport": "true" },
     });
     if let Some(kms) = kms_key_arn {
+        put_cond["StringEquals"] = json!({ "s3:x-amz-server-side-encryption": "aws:kms" });
         put_cond["StringEqualsIfExists"] = json!({
             "s3:x-amz-server-side-encryption-aws-kms-key-id": kms,
         });
@@ -195,6 +200,11 @@ mod tests {
         let stmts = p["Statement"].as_array().unwrap();
         assert_eq!(stmts.len(), 2);
         assert_eq!(stmts[1]["Sid"], "CollectorKMSEncryptOnly");
+        // With KMS, PutObject must require the SSE-KMS header.
+        assert_eq!(
+            stmts[0]["Condition"]["StringEquals"]["s3:x-amz-server-side-encryption"],
+            "aws:kms"
+        );
     }
 
     #[test]
@@ -202,5 +212,13 @@ mod tests {
         let p = generate_iam_policy("my-bucket", None, None);
         let stmts = p["Statement"].as_array().unwrap();
         assert_eq!(stmts.len(), 1);
+        // Without KMS the policy must NOT demand an SSE header — otherwise every
+        // PutObject is denied, since the collector sends none when no KMS is set.
+        assert!(
+            stmts[0]["Condition"].get("StringEquals").is_none(),
+            "no-KMS policy must not require s3:x-amz-server-side-encryption"
+        );
+        // HTTPS is still required.
+        assert_eq!(stmts[0]["Condition"]["Bool"]["aws:SecureTransport"], "true");
     }
 }

@@ -47,7 +47,7 @@ struct Header<'a> {
     key_fingerprint_sha256: String,
 }
 
-pub fn encrypt_file(plain_path: &Path, enc_path: &Path, pubkey_pem: &str) -> Result<()> {
+pub fn encrypt_file(plain_path: &Path, enc_path: &Path, pubkey_pem: &str, build_id: &str) -> Result<()> {
     let pubkey = RsaPublicKey::from_public_key_pem(pubkey_pem.trim())
         .context("parsing RSA public key PEM")?;
 
@@ -73,7 +73,9 @@ pub fn encrypt_file(plain_path: &Path, enc_path: &Path, pubkey_pem: &str) -> Res
     let header = Header {
         version: 1,
         scheme: "rsa-oaep-sha256+aes-256-gcm",
-        build_id: option_env!("DFIR_BUILD_ID").unwrap_or("runtime"),
+        // Real per-build id so the container links to the audit ledger and the
+        // matching private key (see docs/decrypt.md chain-of-custody).
+        build_id,
         created_at: chrono::Utc::now().to_rfc3339(),
         wrapped_key_b64: base64::engine::general_purpose::STANDARD.encode(wrapped),
         nonce_b64: base64::engine::general_purpose::STANDARD.encode(nonce_bytes),
