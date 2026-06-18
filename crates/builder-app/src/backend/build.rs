@@ -39,6 +39,28 @@ pub struct BuildHandle {
     pub build_id: String,
 }
 
+/// Restores the placeholder `embedded_config.json` when dropped — so the real
+/// credentials/config are wiped from the source tree on every exit path,
+/// including an unwinding panic during the build.
+struct RestoreGuard {
+    path: PathBuf,
+    tx: mpsc::Sender<BuildEvent>,
+}
+
+impl Drop for RestoreGuard {
+    fn drop(&mut self) {
+        let placeholder_json = serde_json::to_string_pretty(&embedded_config::placeholder())
+            .expect("placeholder JSON is statically valid");
+        if let Err(e) = std::fs::write(&self.path, &placeholder_json) {
+            let _ = self.tx.send(BuildEvent::Log(format!(
+                "SECURITY WARNING: failed to restore placeholder embedded_config.json: {e}. \
+                 Real credentials may still be present at {}. Delete or overwrite this file manually.",
+                self.path.display()
+            )));
+        }
+    }
+}
+
 /// Kick off a release build of the collector. Returns immediately; the
 /// caller polls `handle.rx` each frame.
 pub fn spawn(
@@ -84,6 +106,13 @@ pub fn spawn(
     let cred_vault_used = built.credential_vault_used;
 
     std::thread::spawn(move || {
+        // RAII: restore the placeholder config on EVERY exit path from this
+        // closure — normal return, error, OR an unwinding panic in
+        // run_cargo_build — so real credentials are never left on disk.
+        // (Under `panic = "abort"` the process dies anyway, taking the secret
+        // with it; this guard covers the unwind case and is correct defense.)
+        let _restore = RestoreGuard { path: collector_cfg_path.clone(), tx: tx.clone() };
+
         let result = run_cargo_build(
             &workspace_root,
             &collector_cfg_path,
@@ -92,19 +121,6 @@ pub fn spawn(
             &tx,
             &ctx,
         );
-
-        // Always restore placeholder, even on failure. If this write fails,
-        // the file on disk may still contain real AWS credentials and other
-        // secrets from the build we just ran — surface this loudly.
-        let placeholder_json = serde_json::to_string_pretty(&embedded_config::placeholder())
-            .expect("placeholder JSON is statically valid");
-        if let Err(e) = std::fs::write(&collector_cfg_path, &placeholder_json) {
-            let _ = tx.send(BuildEvent::Log(format!(
-                "SECURITY WARNING: failed to restore placeholder embedded_config.json: {e}. \
-                 Real credentials may still be present at {}. Delete or overwrite this file manually.",
-                collector_cfg_path.display()
-            )));
-        }
 
         match result {
             Ok((exe_path, sha256, size_bytes)) => {

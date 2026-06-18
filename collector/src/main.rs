@@ -360,9 +360,10 @@ fn run() -> Result<()> {
             }
         }
 
-        let container_path = if cfg.encryption.scheme == "x509" && !cfg.encryption.rsa_public_key_pem.is_empty() {
+        let x509_active = cfg.encryption.scheme == "x509" && !cfg.encryption.rsa_public_key_pem.is_empty();
+        let container_path = if x509_active {
             let enc_path = zip_path.with_extension("zip.enc");
-            crypto::x509::encrypt_file(&zip_path, &enc_path, &cfg.encryption.rsa_public_key_pem)?;
+            crypto::x509::encrypt_file(&zip_path, &enc_path, &cfg.encryption.rsa_public_key_pem, &cfg.build_id)?;
             crypto::secure_delete(&zip_path)?;
             log::info!("Encrypted container: {}", enc_path.display());
             enc_path
@@ -386,12 +387,28 @@ fn run() -> Result<()> {
         upload::dispatch(&cfg.upload, &container_path, &object_key)?;
         log::info!("Upload complete in {:?}", upload_started.elapsed());
 
-        // Sidecar log upload
-        let log_object_key = swap_extension(&object_key, "log");
-        if let Err(e) = upload::dispatch(&cfg.upload, &log_path, &log_object_key) {
-            log::warn!("Sidecar log upload failed (non-fatal): {e:#}");
+        // Sidecar log upload. The log holds metadata (hostname, collected file
+        // paths, artifact inventory) — when X509 is active, encrypt it too so we
+        // never ship cleartext alongside the encrypted evidence. If encryption
+        // of the log fails, skip the upload rather than leak cleartext.
+        let sidecar = if x509_active {
+            let enc_log = log_path.with_extension("log.enc");
+            match crypto::x509::encrypt_file(&log_path, &enc_log, &cfg.encryption.rsa_public_key_pem, &cfg.build_id) {
+                Ok(_) => Some((enc_log, swap_extension(&object_key, "log.enc"))),
+                Err(e) => {
+                    log::warn!("sidecar log encryption failed ({e:#}); NOT uploading cleartext log");
+                    None
+                }
+            }
         } else {
-            log::info!("Sidecar log uploaded as {log_object_key}");
+            Some((log_path.clone(), swap_extension(&object_key, "log")))
+        };
+        if let Some((sidecar_path, sidecar_key)) = sidecar {
+            if let Err(e) = upload::dispatch(&cfg.upload, &sidecar_path, &sidecar_key) {
+                log::warn!("Sidecar log upload failed (non-fatal): {e:#}");
+            } else {
+                log::info!("Sidecar log uploaded as {sidecar_key}");
+            }
         }
 
         // 15. Cleanup
