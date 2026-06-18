@@ -9,7 +9,7 @@
 An IR engineering tool that lets a team:
 
 1. **Visually pick** which forensic artifacts to acquire (Prefetch, Amcache, Registry hives, EVTX, MFT, Memory dump, KAPE-style targets, browser, cloud, persistence — see the YAML catalog under [`artifacts/`](artifacts/)).
-2. **Configure where evidence lands** — AWS S3 (multipart, SSE-KMS, write-only IAM) or local/UNC.
+2. **Configure where evidence lands** — AWS S3 (multipart, SSE-KMS, write-only IAM; AWS or any S3-compatible endpoint like MinIO) or a local/UNC path **you specify** (no hardcoded default; env vars such as `%USERPROFILE%` / `%TEMP%` resolve per-endpoint so one build works across machines with different usernames).
 3. **Click Build** and get a single hardened `Collector.exe` whose embedded config has the artifact list, encryption keys, and upload credentials baked in at compile time.
 4. **Push the EXE** through GPO startup script / SCCM / Intune to thousands of endpoints. It runs once, drops triage into S3, and exits.
 
@@ -43,7 +43,7 @@ Velociraptor is excellent and battle-tested — this tool stands on its shoulder
 
 - **[`crates/builder-app/`](crates/builder-app/)** — `eframe` + `egui` desktop wizard. Opens a native window, walks the user through 6 steps, generates RSA-4096 keypairs in-process, validates S3 with a sentinel PutObject, spawns `cargo build` against the collector, streams the cargo log live into the UI via `std::sync::mpsc`. Records every build to a SQLite audit ledger.
 - **[`crates/shared-crypto/`](crates/shared-crypto/)** — Code shared between the builder (encryption side) and the collector (decryption side). The credential vault lives here so both ends use one bit-compatible implementation.
-- **[`collector/`](collector/)** — Rust binary. Single-shot; drops triage to S3 or local. ~2.5 MB stripped release binary. Unchanged from the previous architecture.
+- **[`collector/`](collector/)** — Rust binary. Single-shot; drops triage to S3 or a configurable local/UNC path. ~2.5 MB stripped release binary. **Statically links the MSVC C runtime (`+crt-static`, see [`.cargo/config.toml`](.cargo/config.toml)) so it runs on a clean Windows endpoint with no Visual C++ Redistributable — truly no prerequisites on the target.** Decrypts its embedded credentials via the shared `shared-crypto` vault.
 
 There is **no HTTP server, no localhost, no Node, no npm.** The builder is one ~10 MB binary that opens a native window. File dialogs use [`rfd`](https://crates.io/crates/rfd) (Rusty File Dialog — native OS picker on Windows/Linux/macOS). In-memory AES keys are zeroed after use via [`zeroize`](https://crates.io/crates/zeroize).
 
@@ -106,7 +106,7 @@ Each `Collector.exe`, when run on an endpoint, performs:
    - `raw_ntfs` artifacts → direct volume read via the bundled NTFS parser (for `$MFT`, `$LogFile`, `$UsnJrnl:$J`).
 7. Pack scratch into a ZIP container (DEFLATE) **or** stream chunks directly to S3 via multipart upload if `chunk_upload.enabled`.
 8. **Encrypt** the ZIP with AES-256-GCM, wrap the key with RSA-OAEP-SHA256, write `[magic][hdr_len][hdr_json][ciphertext]`.
-9. **Upload** to S3 (PutObject ≤100MB, multipart for larger) with SSE-KMS, or copy to local/UNC.
+9. **Upload** to S3 (PutObject ≤100MB, multipart for larger) with SSE-KMS — virtual-hosted for AWS, path-style for custom endpoints (MinIO/Ceph) — or copy to the configured local/UNC path (env vars like `%USERPROFILE%`/`%TEMP%` are expanded on the endpoint).
 10. Securely overwrite + delete plaintext zip and scratch.
 11. Exit with code 0 on success, 1 on any unrecoverable failure.
 
@@ -256,6 +256,27 @@ IR_Agent_builder/
         ├── Collector_<short>.exe
         └── build_metadata.json
 ```
+
+## Troubleshooting
+
+The collector logs verbosely to `%TEMP%\dfir-collector-<build-id8>.log` on the
+endpoint (and a fatal log to `%TEMP%\dfir-collector-fatal.log` on failure). Every
+run starts with a `[startup] profile: ...` line and ends with a `[summary] ...`
+line; ZIP creation is logged as `[zip] added N files` → `[zip] OK: <path> exists, <bytes>`.
+
+**"The agent ran but produced no ZIP / collected nothing":**
+- **Not elevated.** Builds default to `require_admin = true`; a non-elevated run
+  aborts *before* collection with `ABORTING BEFORE COLLECTION: not elevated...` in
+  the log. Run as Administrator, or disable `require_admin` on Step 5.
+- **Binary won't launch on a clean endpoint.** Older builds depended on the VC++
+  runtime. Current builds statically link the CRT (`+crt-static`) — rebuild from
+  `main` so the EXE is self-contained.
+- **Check the log first** — the `[startup]`/`[zip]`/`[summary]` lines (or the fatal
+  log) say exactly where it stopped.
+
+**"Local output went nowhere":** the output path is required and has no default.
+Set it on Step 3 (env vars like `%USERPROFILE%` are expanded on the endpoint); the
+log shows `[local] resolved output path: '<raw>' -> '<expanded>'` and `[local] wrote ...`.
 
 ## Beyond Velociraptor — what's next
 

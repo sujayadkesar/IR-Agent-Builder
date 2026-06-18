@@ -41,13 +41,20 @@ fn local_form(ui: &mut egui::Ui, app: &mut App) {
         .min_col_width(150.0)
         .show(ui, |ui| {
             ui.label("Output path");
-            ui.add(egui::TextEdit::singleline(&mut app.spec.upload.local_path).desired_width(FIELD_W));
+            ui.add(
+                egui::TextEdit::singleline(&mut app.spec.upload.local_path)
+                    .desired_width(FIELD_W)
+                    .hint_text("e.g. %USERPROFILE%\\IR-Output  or  \\\\fileserver\\IR\\Output"),
+            );
             ui.end_row();
         });
     ui.add_space(10.0);
     ui.label(
         egui::RichText::new(
-            "Endpoints drop encrypted containers here. Use a UNC path (\\\\fileserver\\IR\\Output) for fleet-wide collection.",
+            "Required — where each endpoint writes its container. No default is assumed. \
+             Environment variables resolve on the target host (e.g. %USERPROFILE%, %TEMP%, \
+             %PROGRAMDATA%), so one build works across machines with different usernames. \
+             Use a UNC path (\\\\fileserver\\IR\\Output) for fleet-wide central collection.",
         )
         .small()
         .color(theme::MUTED),
