@@ -23,6 +23,8 @@ pub fn write_directory_as_zip(src_dir: &Path, dest_zip: &Path) -> Result<()> {
         .unix_permissions(0o644);
 
     let mut buf = vec![0u8; 1024 * 1024];
+    let mut files_added: u64 = 0;
+    let mut bytes_added: u64 = 0;
     let walk = WalkDir::new(src_dir).into_iter().filter_map(|e| e.ok());
     for entry in walk {
         let path = entry.path();
@@ -44,17 +46,36 @@ pub fn write_directory_as_zip(src_dir: &Path, dest_zip: &Path) -> Result<()> {
         let f = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                log::warn!("zip skip {} (open failed: {e})", path.display());
+                log::warn!("[zip] skip {} (open failed: {e})", path.display());
                 continue;
             }
         };
         let mut reader = BufReader::new(f);
+        let mut this_file: u64 = 0;
         loop {
             let n = reader.read(&mut buf).context("reading file for zip")?;
             if n == 0 { break; }
             zip.write_all(&buf[..n]).context("writing zip body")?;
+            this_file += n as u64;
         }
+        files_added += 1;
+        bytes_added += this_file;
+        log::debug!("[zip] + {rel_str} ({this_file} bytes)");
     }
     zip.finish().context("finalizing zip")?;
+    if files_added == 0 {
+        // Not fatal (an empty collection is still a valid, if useless, result),
+        // but almost always a sign the collectors produced nothing — surface it.
+        log::warn!(
+            "[zip] WARNING: 0 files added from {} - the collection produced no \
+             output (check earlier [ARTIFACT] log lines for failures).",
+            src_dir.display()
+        );
+    } else {
+        log::info!(
+            "[zip] added {files_added} files ({bytes_added} bytes uncompressed) from {}",
+            src_dir.display()
+        );
+    }
     Ok(())
 }

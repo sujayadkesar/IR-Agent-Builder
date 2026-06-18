@@ -118,7 +118,10 @@ impl Default for BuildSpec {
             use_vss: true,
             upload: UploadConfig {
                 kind: UploadKind::Local,
-                local_path: "C:\\IR\\Output".to_string(),
+                // No hardcoded default — the analyst must choose where evidence
+                // lands (paths/usernames differ per endpoint). Supports env vars
+                // like %USERPROFILE% / %TEMP% that resolve on the target host.
+                local_path: String::new(),
                 prefix_template: "%SITE%/%FQDN%".to_string(),
                 verify_tls: true,
                 ..Default::default()
