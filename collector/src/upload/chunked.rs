@@ -363,27 +363,23 @@ pub fn available_disk_space(path: &Path) -> u64 {
     }
 }
 
-/// Determine if streaming upload should be used based on disk space.
-pub fn should_use_streaming(scratch: &Path, cfg: &ChunkUploadCfg, estimated_size_mb: u64) -> bool {
-    if !cfg.enabled { return false; }
-    if cfg.stream_mode { return true; }
-
-    let available = available_disk_space(scratch);
-    let threshold = if cfg.low_disk_threshold_mb > 0 {
-        cfg.low_disk_threshold_mb * 1024 * 1024
-    } else {
-        estimated_size_mb * 1024 * 1024 * 2 // need 2x estimated for ZIP + encrypted
-    };
-
-    if available < threshold {
+/// Whether to use the streaming upload path.
+///
+/// DISABLED for now: the chunked path is experimental and currently (a) emits a
+/// non-ZIP, UNENCRYPTED, custom-framed blob under a `.zip` key, and (b) on a
+/// partial part-upload failure can `CompleteMultipartUpload` a TRUNCATED object
+/// while still reporting success. Until it is reworked (real encrypted
+/// container + all-or-nothing completion), always fall back to the traditional
+/// ZIP -> encrypt -> upload path, which already handles large collections via
+/// S3 multipart. The chunked module is retained for that future rework.
+pub fn should_use_streaming(_scratch: &Path, cfg: &ChunkUploadCfg, _estimated_size_mb: u64) -> bool {
+    if cfg.enabled || cfg.stream_mode {
         log::warn!(
-            "[chunked] low disk space detected: available={}MB, threshold={}MB — enabling streaming mode",
-            available / 1024 / 1024, threshold / 1024 / 1024
+            "[chunked] streaming was requested but is currently disabled (experimental / \
+             incomplete); using the traditional encrypt-then-upload path instead."
         );
-        true
-    } else {
-        false
     }
+    false
 }
 
 /// Pack a single artifact's output directory into a compressed chunk file.
