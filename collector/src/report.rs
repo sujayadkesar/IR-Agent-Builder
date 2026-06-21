@@ -75,4 +75,27 @@ impl RunReport {
     pub fn finalize(&mut self) {
         self.finished_at = Some(Utc::now());
     }
+
+    /// Render the per-artifact records as CSV — emitted alongside the JSON
+    /// report when the build's `output_format` is `csv`.
+    pub fn to_csv(&self) -> String {
+        let mut out = String::from("name,status,file_count,bytes,elapsed_ms,error\n");
+        for a in &self.artifacts {
+            out.push_str(&format!(
+                "{},{},{},{},{},{}\n",
+                csv_quote(&a.name),
+                csv_quote(&a.status),
+                a.file_count,
+                a.bytes,
+                a.elapsed_ms,
+                csv_quote(a.error.as_deref().unwrap_or("")),
+            ));
+        }
+        out
+    }
+}
+
+/// RFC-4180 field quoting: wrap in quotes and double any embedded quotes.
+fn csv_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
 }

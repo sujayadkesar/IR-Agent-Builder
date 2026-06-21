@@ -51,6 +51,14 @@ pub fn collect(
                 Ok(bytes) => {
                     stats.add_file(bytes);
                     log::debug!("[{artifact_name}] copied {} ({bytes} B)", entry.display());
+                    if crate::budget::add(bytes) {
+                        log::warn!(
+                            "[{artifact_name}] collection size cap reached mid-artifact; \
+                             stopping this artifact early (collected {} files so far)",
+                            stats.file_count
+                        );
+                        return Ok(stats);
+                    }
                 }
                 Err(e) => log::warn!("[{artifact_name}] copy failed {}: {e:#}", entry.display()),
             }
@@ -162,6 +170,10 @@ pub fn collect_raw_volume(
 
     let mut stats = ArtifactStats::default();
     for f in files {
+        if crate::budget::is_over() {
+            log::warn!("[{artifact_name}] collection size cap reached; skipping remaining raw files");
+            break;
+        }
         // When VSS snapshot is mounted, raw $MFT lives at `<vss>/$MFT` and is readable
         // with shared mode. We try this first.
         let candidate = collect_root.join(f.replace('\\', "/"));
@@ -171,6 +183,7 @@ pub fn collect_raw_volume(
                 Ok(b) => {
                     stats.add_file(b);
                     log::info!("[{artifact_name}] raw volume copied {} ({b} B)", f);
+                    let _ = crate::budget::add(b);
                     continue;
                 }
                 Err(e) => log::warn!("[{artifact_name}] raw fallback for {f}: {e:#}"),

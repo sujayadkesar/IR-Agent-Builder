@@ -12,11 +12,13 @@
 //   9. Upload + cleanup.
 
 mod artifacts;
+mod budget;
 mod config;
 mod crypto;
 mod elevation;
 mod logging;
 mod report;
+mod throttle;
 mod upload;
 mod zipper;
 
@@ -30,6 +32,9 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 const EMBEDDED_CONFIG: &[u8] = include_bytes!("embedded_config.json");
@@ -51,6 +56,169 @@ fn main() {
         eprintln!("See {} for details", path.display());
         std::process::exit(1);
     }
+}
+
+/// Run the configured artifacts, optionally in parallel (`cfg.concurrency`),
+/// stopping early once the collection size cap is reached. Results are recorded
+/// into `summary` in the artifacts' original order regardless of completion order.
+fn collect_artifacts(
+    cfg: &config::Config,
+    collect_root: &std::path::Path,
+    scratch: &std::path::Path,
+    summary: &mut report::RunReport,
+    cap_bytes: u64,
+    tick: &AtomicU64,
+    start: Instant,
+) {
+    let concurrency = (cfg.concurrency as usize).max(1);
+
+    if concurrency == 1 {
+        for artifact in &cfg.artifacts {
+            log::info!("[ARTIFACT] starting {artifact}");
+            let started = Instant::now();
+            match artifacts::run_artifact(artifact, collect_root, scratch, cfg) {
+                Ok(stats) => {
+                    let elapsed = started.elapsed();
+                    log::info!(
+                        "[ARTIFACT] {artifact} OK files={} bytes={} elapsed={:?}",
+                        stats.file_count, stats.bytes, elapsed
+                    );
+                    summary.record_success(artifact, stats, elapsed);
+                }
+                Err(e) => {
+                    log::error!("[ARTIFACT] {artifact} FAILED: {e:#}");
+                    summary.record_failure(artifact, format!("{e:#}"));
+                }
+            }
+            tick.store(start.elapsed().as_secs(), Ordering::Relaxed);
+            if summary.total_bytes >= cap_bytes {
+                log::warn!(
+                    "[cap] collection size {} B reached the {} GB limit; skipping remaining artifacts",
+                    summary.total_bytes, cfg.max_collection_size_gb
+                );
+                break;
+            }
+        }
+        return;
+    }
+
+    // Parallel: `concurrency` workers pull from a shared index; the cap sets a
+    // stop flag (overshoot of up to concurrency-1 artifacts is accepted).
+    log::info!(
+        "[collect] running {} artifacts with concurrency={concurrency}",
+        cfg.artifacts.len()
+    );
+    type Item = (usize, String, std::result::Result<artifacts::ArtifactStats, String>, Duration);
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let total = AtomicU64::new(0);
+    let results: Mutex<Vec<Item>> = Mutex::new(Vec::new());
+    let n = cfg.artifacts.len();
+
+    std::thread::scope(|s| {
+        for _ in 0..concurrency {
+            s.spawn(|| loop {
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let idx = next.fetch_add(1, Ordering::Relaxed);
+                if idx >= n {
+                    break;
+                }
+                let artifact = &cfg.artifacts[idx];
+                log::info!("[ARTIFACT] starting {artifact}");
+                let started = Instant::now();
+                let res = artifacts::run_artifact(artifact, collect_root, scratch, cfg);
+                let elapsed = started.elapsed();
+                let item: Item = match res {
+                    Ok(stats) => {
+                        log::info!(
+                            "[ARTIFACT] {artifact} OK files={} bytes={} elapsed={:?}",
+                            stats.file_count, stats.bytes, elapsed
+                        );
+                        let t = total.fetch_add(stats.bytes, Ordering::Relaxed) + stats.bytes;
+                        if t >= cap_bytes {
+                            stop.store(true, Ordering::Relaxed);
+                        }
+                        (idx, artifact.clone(), Ok(stats), elapsed)
+                    }
+                    Err(e) => {
+                        log::error!("[ARTIFACT] {artifact} FAILED: {e:#}");
+                        (idx, artifact.clone(), Err(format!("{e:#}")), elapsed)
+                    }
+                };
+                tick.store(start.elapsed().as_secs(), Ordering::Relaxed);
+                results.lock().unwrap().push(item);
+            });
+        }
+    });
+
+    let mut items = results.into_inner().unwrap();
+    items.sort_by_key(|(idx, _, _, _)| *idx);
+    let collected = items.len();
+    for (_, name, res, elapsed) in items {
+        match res {
+            Ok(stats) => summary.record_success(&name, stats, elapsed),
+            Err(e) => summary.record_failure(&name, e),
+        }
+    }
+    if stop.load(Ordering::Relaxed) {
+        log::warn!(
+            "[cap] reached the {} GB limit (approximate under concurrency={concurrency}); {collected} of {n} artifacts ran",
+            cfg.max_collection_size_gb
+        );
+    }
+}
+
+/// Background watchdog: aborts the process if no collection progress is made
+/// within `timeout_secs`. A hung artifact thread can't be killed cooperatively
+/// in Rust, so the only lever is a hard exit — but before exiting it makes a
+/// best effort to release the VSS junction and wipe the plaintext scratch dir,
+/// so a stall doesn't leave evidence or a mounted snapshot on the endpoint.
+/// `done` stands it down once collection completes (so it never fires during the
+/// zip/encrypt/upload phases). `timeout_secs == 0` disables it.
+fn spawn_watchdog(
+    timeout_secs: u64,
+    start: Instant,
+    tick: Arc<AtomicU64>,
+    done: Arc<AtomicBool>,
+    scratch: PathBuf,
+    vss_mount: Option<PathBuf>,
+) {
+    if timeout_secs == 0 {
+        return;
+    }
+    std::thread::spawn(move || {
+        #[cfg(not(target_os = "windows"))]
+        let _ = &vss_mount;
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            if done.load(Ordering::Relaxed) {
+                return;
+            }
+            let gap = start
+                .elapsed()
+                .as_secs()
+                .saturating_sub(tick.load(Ordering::Relaxed));
+            if gap >= timeout_secs {
+                log::error!(
+                    "[watchdog] no collection progress for {gap}s (limit {timeout_secs}s) — a stuck \
+                     artifact is hanging the collector; aborting with best-effort cleanup"
+                );
+                #[cfg(target_os = "windows")]
+                if let Some(m) = vss_mount.as_ref() {
+                    let _ = vss::release_snapshot(m);
+                    log::error!("[watchdog] released VSS junction at {}", m.display());
+                }
+                match std::fs::remove_dir_all(&scratch) {
+                    Ok(_) => log::error!("[watchdog] wiped scratch dir {}", scratch.display()),
+                    Err(e) => log::error!("[watchdog] scratch wipe failed (non-fatal): {e}"),
+                }
+                log::error!("[watchdog] exiting (code 2)");
+                std::process::exit(2);
+            }
+        }
+    });
 }
 
 fn install_panic_hook() {
@@ -87,6 +255,10 @@ fn run() -> Result<()> {
     // 1. Parse embedded config
     let mut cfg: config::Config =
         serde_json::from_slice(EMBEDDED_CONFIG).context("parsing embedded config JSON")?;
+
+    // Silent mode: detach from the console before any output, so nothing shows
+    // on the endpoint. Done as early as possible to minimise any flash.
+    throttle::hide_console_if_silent(cfg.silent);
 
     // 2. Decrypt credential vault if present (anti-RE protection)
     if let Some(ref mut s3) = cfg.upload.s3 {
@@ -162,6 +334,9 @@ fn run() -> Result<()> {
         cfg.artifacts.len(), cfg.kape_targets.len(), cfg.use_vss, cfg.encryption.scheme,
         cfg.require_admin, cfg.silent, cfg.upload.kind, output_target,
     );
+
+    // Resource governance from the build config.
+    throttle::apply_cpu_limit(cfg.cpu_limit_percent);
 
     // 6. Admin/root elevation check
     if cfg.require_admin && !elevation::is_elevated() {
@@ -257,64 +432,127 @@ fn run() -> Result<()> {
     }
     let mut chunk_index: u32 = 0;
 
-    for artifact in &cfg.artifacts {
-        log::info!("[ARTIFACT] starting {artifact}");
-        let started = std::time::Instant::now();
-        match artifacts::run_artifact(artifact, &collect_root, &scratch, &cfg) {
-            Ok(stats) => {
-                let elapsed = started.elapsed();
-                log::info!(
-                    "[ARTIFACT] {artifact} OK files={} bytes={} elapsed={:?}",
-                    stats.file_count, stats.bytes, elapsed
-                );
-                summary.record_success(artifact, stats, elapsed);
+    // Collection-size cap (0 = no cap) and a progress watchdog over the
+    // collection phase only.
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let cap_bytes = if cfg.max_collection_size_gb > 0 {
+        cfg.max_collection_size_gb.saturating_mul(GIB)
+    } else {
+        u64::MAX
+    };
+    // Also enforce the cap *within* an artifact (a single glob can balloon),
+    // not just at artifact boundaries.
+    budget::set_cap(cap_bytes);
+    let wd_start = Instant::now();
+    let wd_tick = Arc::new(AtomicU64::new(0));
+    let wd_done = Arc::new(AtomicBool::new(false));
+    {
+        #[cfg(target_os = "windows")]
+        let vss_for_wd = vss_mount.clone();
+        #[cfg(not(target_os = "windows"))]
+        let vss_for_wd: Option<PathBuf> = None;
+        spawn_watchdog(
+            cfg.progress_timeout_seconds,
+            wd_start,
+            Arc::clone(&wd_tick),
+            Arc::clone(&wd_done),
+            scratch.clone(),
+            vss_for_wd,
+        );
+    }
 
-                // If streaming, pack and queue this artifact's output as a chunk
-                if let Some(ref uploader) = chunked_uploader {
-                    let artifact_dir = scratch.join(artifact);
-                    if artifact_dir.exists() {
-                        match upload::chunked::pack_artifact_chunk(
-                            artifact, &artifact_dir, &chunk_dir, chunk_index
-                        ) {
-                            Ok(chunk) => {
-                                chunk_index += 1;
-                                if let Err(e) = uploader.queue_chunk(chunk) {
-                                    log::error!("[streaming] failed to queue chunk for {artifact}: {e}");
-                                } else {
-                                    // Delete the local artifact dir to reclaim space
-                                    let _ = std::fs::remove_dir_all(&artifact_dir);
-                                    log::info!("[streaming] chunk queued, local dir freed for {artifact}");
+    if chunked_uploader.is_some() {
+        // Streaming path (currently disabled when X509 is active): sequential,
+        // packing each artifact into a chunk as it completes.
+        for artifact in &cfg.artifacts {
+            log::info!("[ARTIFACT] starting {artifact}");
+            let started = Instant::now();
+            match artifacts::run_artifact(artifact, &collect_root, &scratch, &cfg) {
+                Ok(stats) => {
+                    let elapsed = started.elapsed();
+                    log::info!(
+                        "[ARTIFACT] {artifact} OK files={} bytes={} elapsed={:?}",
+                        stats.file_count, stats.bytes, elapsed
+                    );
+                    summary.record_success(artifact, stats, elapsed);
+
+                    if let Some(ref uploader) = chunked_uploader {
+                        let artifact_dir = scratch.join(artifact);
+                        if artifact_dir.exists() {
+                            match upload::chunked::pack_artifact_chunk(
+                                artifact, &artifact_dir, &chunk_dir, chunk_index
+                            ) {
+                                Ok(chunk) => {
+                                    chunk_index += 1;
+                                    if let Err(e) = uploader.queue_chunk(chunk) {
+                                        log::error!("[streaming] failed to queue chunk for {artifact}: {e}");
+                                    } else {
+                                        let _ = std::fs::remove_dir_all(&artifact_dir);
+                                        log::info!("[streaming] chunk queued, local dir freed for {artifact}");
+                                    }
                                 }
+                                Err(e) => log::error!("[streaming] failed to pack chunk for {artifact}: {e}"),
                             }
-                            Err(e) => log::error!("[streaming] failed to pack chunk for {artifact}: {e}"),
                         }
                     }
                 }
+                Err(e) => {
+                    log::error!("[ARTIFACT] {artifact} FAILED: {e:#}");
+                    summary.record_failure(artifact, format!("{e:#}"));
+                }
             }
-            Err(e) => {
-                log::error!("[ARTIFACT] {artifact} FAILED: {e:#}");
-                summary.record_failure(artifact, format!("{e:#}"));
+            wd_tick.store(wd_start.elapsed().as_secs(), Ordering::Relaxed);
+            if summary.total_bytes >= cap_bytes {
+                log::warn!(
+                    "[cap] collection size {} B reached the {} GB limit; skipping remaining artifacts",
+                    summary.total_bytes, cfg.max_collection_size_gb
+                );
+                break;
             }
         }
+    } else {
+        // Standard path: collect (optionally in parallel via cfg.concurrency),
+        // honouring the size cap.
+        collect_artifacts(
+            &cfg, &collect_root, &scratch, &mut summary, cap_bytes, &wd_tick, wd_start,
+        );
     }
 
-    // 11. KAPE-style file pattern targets
+    // 11. KAPE-style file pattern targets (also subject to the size cap).
     if !cfg.kape_targets.is_empty() {
-        log::info!("Running {} KAPE-style targets", cfg.kape_targets.len());
-        match artifacts::kape::run_targets(&cfg.kape_targets, &collect_root, &scratch) {
-            Ok(stats) => {
-                log::info!("[KAPE] OK files={} bytes={}", stats.file_count, stats.bytes);
-                summary.record_success("kape.targets", stats, std::time::Duration::ZERO);
+        if summary.total_bytes >= cap_bytes {
+            log::warn!(
+                "[cap] size limit already reached; skipping {} KAPE targets",
+                cfg.kape_targets.len()
+            );
+        } else {
+            log::info!("Running {} KAPE-style targets", cfg.kape_targets.len());
+            match artifacts::kape::run_targets(&cfg.kape_targets, &collect_root, &scratch) {
+                Ok(stats) => {
+                    log::info!("[KAPE] OK files={} bytes={}", stats.file_count, stats.bytes);
+                    summary.record_success("kape.targets", stats, Duration::ZERO);
+                }
+                Err(e) => log::error!("[KAPE] FAILED: {e:#}"),
             }
-            Err(e) => log::error!("[KAPE] FAILED: {e:#}"),
         }
     }
 
-    // 12. Write run report
+    // Collection finished — stand the watchdog down so it can't fire during the
+    // (potentially long) zip / encrypt / upload phases.
+    wd_done.store(true, Ordering::Relaxed);
+
+    // 12. Write run report (JSON always; CSV too when output_format = csv).
     summary.finalize();
     let report_path = scratch.join("run_report.json");
     std::fs::write(&report_path, serde_json::to_vec_pretty(&summary)?)
         .context("writing run_report.json")?;
+    if cfg.output_format.eq_ignore_ascii_case("csv") {
+        let csv_path = scratch.join("run_report.csv");
+        match std::fs::write(&csv_path, summary.to_csv()) {
+            Ok(_) => log::info!("[report] wrote CSV report {}", csv_path.display()),
+            Err(e) => log::warn!("[report] writing run_report.csv failed (non-fatal): {e}"),
+        }
+    }
 
     // 13. Release VSS snapshot junction (Windows only).
     #[cfg(target_os = "windows")]
