@@ -44,17 +44,25 @@ pub const DEFAULT_CHUNK: usize = 256 * 1024 * 1024;
 /// Auto mode never picks below this floor or above this cap.
 const AUTO_MIN: u64 = 64 * MIB;
 const AUTO_MAX: u64 = 512 * MIB;
+/// Hard ceiling on per-chunk PLAINTEXT (2 GiB). Each chunk's ciphertext length
+/// is written as a `u32` (`[u32 BE ct_len][ct+16B tag]`), so the sealed chunk
+/// MUST stay below 2^32 bytes — at exactly 4096 MiB the `u32` wraps and silently
+/// produces an un-decryptable container. 2 GiB leaves ample margin (and also
+/// keeps peak memory, ~3x the chunk, sane).
+const MAX_CHUNK: u64 = 2048 * MIB;
+const CHUNK_FLOOR: u64 = 64 * 1024;
 const FORMAT_VERSION: u8 = 2;
 
 /// Resolve the per-chunk plaintext size (bytes) for streaming encryption.
 ///
-/// `chunk_mb > 0` → that fixed size (clamped to a 64 KiB floor). `chunk_mb == 0`
-/// → Auto: peak memory is ~3x the chunk (lookahead chunk + current + one
+/// `chunk_mb > 0` → that fixed size, clamped to `[64 KiB, MAX_CHUNK]`. `chunk_mb
+/// == 0` → Auto: peak memory is ~3x the chunk (lookahead chunk + current + one
 /// ciphertext), so we target ~1/8 of available RAM, clamped to [64 MiB, 512 MiB].
-/// `available_ram == 0` (unknown) falls back to `DEFAULT_CHUNK`.
+/// `available_ram == 0` (unknown) falls back to `DEFAULT_CHUNK`. The MAX_CHUNK
+/// clamp is what prevents the `u32` chunk-length prefix from overflowing.
 pub fn resolve_chunk_bytes(chunk_mb: u64, available_ram: u64) -> usize {
     if chunk_mb > 0 {
-        return (chunk_mb.saturating_mul(MIB)).max(64 * 1024) as usize;
+        return (chunk_mb.saturating_mul(MIB)).clamp(CHUNK_FLOOR, MAX_CHUNK) as usize;
     }
     if available_ram == 0 {
         return DEFAULT_CHUNK;
@@ -76,7 +84,9 @@ struct Header<'a> {
 
 /// Encrypt `plain_path` -> `enc_path`. `chunk_bytes` is the plaintext bytes
 /// sealed per chunk (the caller resolves the user's setting or the RAM-based
-/// auto value); it is clamped to a sane floor so a bad value can't break things.
+/// auto value). It is clamped to `[64 KiB, MAX_CHUNK]` here as the last line of
+/// defense: the MAX_CHUNK ceiling guarantees a sealed chunk stays under 2^32
+/// bytes so the `u32` length prefix can never overflow, regardless of caller.
 pub fn encrypt_file(
     plain_path: &Path,
     enc_path: &Path,
@@ -84,7 +94,7 @@ pub fn encrypt_file(
     build_id: &str,
     chunk_bytes: usize,
 ) -> Result<()> {
-    let chunk_bytes = chunk_bytes.max(64 * 1024); // floor 64 KiB
+    let chunk_bytes = (chunk_bytes as u64).clamp(CHUNK_FLOOR, MAX_CHUNK) as usize;
     let pubkey = RsaPublicKey::from_public_key_pem(pubkey_pem.trim())
         .context("parsing RSA public key PEM")?;
 
@@ -134,13 +144,21 @@ pub fn encrypt_file(
         let next = read_chunk(&mut input, chunk_bytes)?;
         let is_last = next.is_empty();
         let ct = seal_chunk(&cipher, &nonce_base, &header_json, idx, is_last, &cur)?;
+        // Defensive: ciphertext length is written as a u32. The MAX_CHUNK clamp
+        // already guarantees this holds; assert it so a future change can't
+        // silently reintroduce the overflow.
+        debug_assert!(ct.len() < u32::MAX as usize, "chunk ciphertext exceeds u32 length prefix");
         out.write_all(&(ct.len() as u32).to_be_bytes())?;
         out.write_all(&ct)?;
-        idx += 1;
         if is_last {
             break;
         }
         cur = next;
+        // The per-chunk nonce/AAD embed `idx` as a u32; bail before it could wrap
+        // (which would reuse a nonce under the same key) rather than corrupt.
+        idx = idx
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("collection too large: exceeds the {} chunk maximum for this chunk size", u32::MAX))?;
     }
     out.flush()?;
     aes_key.fill(0);
@@ -334,6 +352,29 @@ mod tests {
         assert_eq!(resolve_chunk_bytes(0, 128 * MIB), AUTO_MIN as usize);
         // Auto in between picks ~1/8 of available RAM.
         assert_eq!(resolve_chunk_bytes(0, 2048 * MIB), (2048 / 8) * MIB as usize);
+        // Fixed size is capped at MAX_CHUNK so the u32 chunk-length prefix can
+        // never overflow (regression for the 4096 MiB cliff).
+        assert_eq!(resolve_chunk_bytes(4096, 99 * MIB), MAX_CHUNK as usize);
+        assert_eq!(resolve_chunk_bytes(999_999, 99 * MIB), MAX_CHUNK as usize);
+    }
+
+    #[test]
+    fn huge_chunk_arg_is_clamped_and_round_trips() {
+        // A caller passing an enormous chunk size must not overflow the u32
+        // length prefix; encrypt_file clamps it to MAX_CHUNK and still works.
+        let (pubpem, privpem) = keypair();
+        let dir = std::env::temp_dir();
+        let p = dir.join("x509t_hugechunk_plain");
+        let e = dir.join("x509t_hugechunk_enc");
+        let d = dir.join("x509t_hugechunk_dec");
+        let data = vec![0x5Au8; 200_000];
+        std::fs::write(&p, &data).unwrap();
+        encrypt_file(&p, &e, &pubpem, "b", usize::MAX).unwrap();
+        decrypt_file(&e, &d, &privpem).unwrap();
+        assert_eq!(std::fs::read(&d).unwrap(), data);
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(&e);
+        let _ = std::fs::remove_file(&d);
     }
 
     #[test]

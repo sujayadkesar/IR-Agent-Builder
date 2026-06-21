@@ -37,7 +37,9 @@ pub fn view(ui: &mut egui::Ui, spec: &mut BuildSpec) {
                     ui.checkbox(&mut spec.encrypt_chunk_auto, "Auto (by endpoint RAM)");
                     ui.add_enabled(
                         !spec.encrypt_chunk_auto,
-                        egui::DragValue::new(&mut spec.encrypt_chunk_mb).range(16..=4096).suffix(" MiB"),
+                        // Max 2048 MiB: a chunk's sealed ciphertext length is a u32 on
+                        // disk, so it must stay under 2^32 bytes (4096 MiB overflows it).
+                        egui::DragValue::new(&mut spec.encrypt_chunk_mb).range(16..=2048).suffix(" MiB"),
                     );
                 });
                 ui.end_row();
