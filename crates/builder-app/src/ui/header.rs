@@ -17,17 +17,12 @@ pub fn view(ui: &mut egui::Ui, app: &mut App) {
         ui.add_space(12.0);
 
         ui.vertical(|ui| {
-            ui.add_space(1.0);
+            ui.add_space(8.0);
             ui.label(
                 egui::RichText::new("DFIR Agent Builder")
                     .strong()
                     .size(17.0)
                     .color(theme::TEXT),
-            );
-            ui.label(
-                egui::RichText::new("Velociraptor-class triage collector compiler")
-                    .size(11.5)
-                    .color(theme::MUTED),
             );
         });
 

@@ -4,77 +4,129 @@ Each `Collector_<id>.exe` produces a `.zip.enc` container in S3 (or local). To d
 
 ## Container layout
 
+The current format is **version 2 (chunked)**. The bulk data is encrypted in
+independent AES-256-GCM chunks so a multi-GB forensic ZIP encrypts and decrypts
+in constant memory — it is never loaded whole into RAM.
+
 ```
-+----------------+----------+----------------+--------------------+--------------------+
-| magic "DFIR"   | ver (1B) | hdr_len (4B BE)| header_json (N B)  | AES-GCM body       |
-+----------------+----------+----------------+--------------------+--------------------+
++--------------+----------+-----------------+-------------------+
+| magic "DFIR" | ver (1B) | hdr_len (4B BE) | header_json (N B) |
++--------------+----------+-----------------+-------------------+
+then repeated until EOF, one record per chunk:
++---------------------+----------------------------+
+| chunk_len (4B BE u32)| chunk ciphertext + 16B tag |
++---------------------+----------------------------+
 ```
 
 `header_json` looks like:
 
 ```json
 {
-  "version": 1,
-  "scheme": "rsa-oaep-sha256+aes-256-gcm",
+  "version": 2,
+  "scheme": "rsa-oaep-sha256+aes-256-gcm-chunked",
   "build_id": "a3f9b221-...",
   "created_at": "2026-05-06T14:30:00Z",
   "wrapped_key_b64": "<RSA-OAEP-SHA256-wrapped 32-byte AES key>",
-  "nonce_b64": "<12-byte GCM nonce>",
+  "nonce_b64": "<8-byte nonce base (v2) | 12-byte nonce (legacy v1)>",
   "key_fingerprint_sha256": "<hex SHA256 of the public key DER>"
 }
 ```
 
-The header is **AAD-bound** — any tampering invalidates the authentication tag.
+For each chunk `i` (0-based):
+- **nonce** = `nonce_base` (8 bytes) ‖ `i` as 4-byte big-endian → 12-byte GCM nonce.
+- **AAD** = `header_json` bytes ‖ `i` as 4-byte big-endian ‖ a 1-byte
+  `is_last` flag (`0x01` for the final chunk, else `0x00`).
+
+Binding the index and last-flag into the AAD makes reordering, dropping, or
+truncating chunks fail authentication — so a partial/truncated upload cannot be
+silently decrypted as if it were complete.
+
+The helper below also decrypts **legacy version 1** containers (single-shot
+whole-body GCM with a 12-byte nonce and the header bytes as AAD) for any
+evidence built before the chunked format.
 
 ## Python decryption helper
 
-Save as `decrypt.py`. Requires `pip install cryptography`.
+Save as `decrypt.py`. Requires `pip install cryptography`. It streams chunk by
+chunk, so it handles containers far larger than RAM.
 
 ```python
 #!/usr/bin/env python3
-"""DFIR collector container decryptor."""
+"""DFIR collector container decryptor (supports v2 chunked + legacy v1)."""
 import argparse, base64, hashlib, json, struct, sys
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-def decrypt(enc_path: str, key_path: str, out_path: str):
-    with open(enc_path, "rb") as f:
-        magic = f.read(4)
-        if magic != b"DFIR":
-            sys.exit(f"Bad magic: {magic!r}")
-        version = f.read(1)[0]
-        if version != 1:
-            sys.exit(f"Unsupported version: {version}")
-        hdr_len = struct.unpack(">I", f.read(4))[0]
-        hdr_json = f.read(hdr_len)
-        body = f.read()
-        hdr = json.loads(hdr_json)
-
+def _unwrap_key(hdr, key_path):
     with open(key_path, "rb") as f:
         priv = serialization.load_pem_private_key(f.read(), password=None)
-
-    # Optional: verify fingerprint matches
     pub_der = priv.public_key().public_bytes(
         serialization.Encoding.DER,
         serialization.PublicFormat.SubjectPublicKeyInfo)
     fp = hashlib.sha256(pub_der).hexdigest()
     if fp != hdr["key_fingerprint_sha256"]:
         sys.exit(f"Private key fingerprint mismatch:\n  expect: {hdr['key_fingerprint_sha256']}\n  actual: {fp}")
-
-    wrapped = base64.b64decode(hdr["wrapped_key_b64"])
-    nonce   = base64.b64decode(hdr["nonce_b64"])
-
-    aes_key = priv.decrypt(
-        wrapped,
+    return priv.decrypt(
+        base64.b64decode(hdr["wrapped_key_b64"]),
         padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
     )
-    cipher = AESGCM(aes_key)
-    plaintext = cipher.decrypt(nonce, body, hdr_json)
 
-    with open(out_path, "wb") as f:
-        f.write(plaintext)
-    print(f"Decrypted -> {out_path} ({len(plaintext)} bytes)")
+def decrypt(enc_path: str, key_path: str, out_path: str):
+    with open(enc_path, "rb") as f:
+        if f.read(4) != b"DFIR":
+            sys.exit("Bad magic (not a DFIR container)")
+        version = f.read(1)[0]
+        hdr_len = struct.unpack(">I", f.read(4))[0]
+        hdr_json = f.read(hdr_len)
+        hdr = json.loads(hdr_json)
+        aes_key = _unwrap_key(hdr, key_path)
+        cipher = AESGCM(aes_key)
+        nonce_field = base64.b64decode(hdr["nonce_b64"])
+        total = 0
+
+        if version == 1:
+            # Legacy single-shot: 12-byte nonce, whole body, AAD = header bytes.
+            body = f.read()
+            pt = cipher.decrypt(nonce_field, body, hdr_json)
+            with open(out_path, "wb") as out:
+                out.write(pt)
+            total = len(pt)
+        elif version == 2:
+            if len(nonce_field) != 8:
+                sys.exit(f"v2 nonce base must be 8 bytes, got {len(nonce_field)}")
+            def read_record():
+                lb = f.read(4)
+                if not lb:
+                    return None              # clean EOF at a chunk boundary
+                if len(lb) != 4:
+                    sys.exit("truncated chunk length")
+                (ln,) = struct.unpack(">I", lb)
+                ct = f.read(ln)
+                if len(ct) != ln:
+                    sys.exit("truncated chunk body")
+                return ct
+            with open(out_path, "wb") as out:
+                idx = 0
+                cur = read_record()
+                if cur is None:
+                    sys.exit("container has no chunks")
+                while True:
+                    nxt = read_record()
+                    is_last = nxt is None
+                    nonce = nonce_field + struct.pack(">I", idx)
+                    aad = hdr_json + struct.pack(">I", idx) + bytes([1 if is_last else 0])
+                    pt = cipher.decrypt(nonce, cur, aad)  # raises on tamper/truncation
+                    out.write(pt)
+                    total += len(pt)
+                    idx += 1
+                    if is_last:
+                        break
+                    cur = nxt
+        else:
+            sys.exit(f"Unsupported container version: {version}")
+
+    print(f"Decrypted -> {out_path} ({total} bytes)")
     print(f"Build ID: {hdr['build_id']}")
     print(f"Created:  {hdr['created_at']}")
 

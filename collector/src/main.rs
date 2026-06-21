@@ -361,9 +361,25 @@ fn run() -> Result<()> {
         }
 
         let x509_active = cfg.encryption.scheme == "x509" && !cfg.encryption.rsa_public_key_pem.is_empty();
+        // Resolve the streaming-encryption chunk size once (fixed MiB from the
+        // build, or Auto-sized from this endpoint's available RAM). Bounds peak
+        // memory so a multi-GB collection can't OOM the encryptor.
+        let enc_chunk = if x509_active {
+            let avail = upload::chunked::available_ram_bytes();
+            let chunk = crypto::x509::resolve_chunk_bytes(cfg.encryption.chunk_mb, avail);
+            let mode = if cfg.encryption.chunk_mb == 0 {
+                format!("auto, avail RAM {} MiB", avail / (1024 * 1024))
+            } else {
+                "fixed".to_string()
+            };
+            log::info!("[encrypt] chunk size = {} MiB [{}]", chunk / (1024 * 1024), mode);
+            chunk
+        } else {
+            0
+        };
         let container_path = if x509_active {
             let enc_path = zip_path.with_extension("zip.enc");
-            crypto::x509::encrypt_file(&zip_path, &enc_path, &cfg.encryption.rsa_public_key_pem, &cfg.build_id)?;
+            crypto::x509::encrypt_file(&zip_path, &enc_path, &cfg.encryption.rsa_public_key_pem, &cfg.build_id, enc_chunk)?;
             crypto::secure_delete(&zip_path)?;
             log::info!("Encrypted container: {}", enc_path.display());
             enc_path
@@ -393,7 +409,7 @@ fn run() -> Result<()> {
         // of the log fails, skip the upload rather than leak cleartext.
         let sidecar = if x509_active {
             let enc_log = log_path.with_extension("log.enc");
-            match crypto::x509::encrypt_file(&log_path, &enc_log, &cfg.encryption.rsa_public_key_pem, &cfg.build_id) {
+            match crypto::x509::encrypt_file(&log_path, &enc_log, &cfg.encryption.rsa_public_key_pem, &cfg.build_id, enc_chunk) {
                 Ok(_) => Some((enc_log, swap_extension(&object_key, "log.enc"))),
                 Err(e) => {
                     log::warn!("sidecar log encryption failed ({e:#}); NOT uploading cleartext log");
