@@ -363,6 +363,41 @@ pub fn available_disk_space(path: &Path) -> u64 {
     }
 }
 
+/// Available physical RAM in bytes, or 0 if it can't be determined. Used to
+/// auto-size the streaming-encryption chunk when the build leaves it on Auto.
+pub fn available_ram_bytes() -> u64 {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut status = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            if GlobalMemoryStatusEx(&mut status).is_ok() {
+                return status.ullAvailPhys;
+            }
+        }
+        0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Prefer MemAvailable (kernel's estimate of allocatable RAM) over MemFree.
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                    if let Some(kb) = rest.split_whitespace().next() {
+                        if let Ok(kb) = kb.parse::<u64>() {
+                            return kb.saturating_mul(1024);
+                        }
+                    }
+                }
+            }
+        }
+        0
+    }
+}
+
 /// Whether to use the streaming upload path.
 ///
 /// DISABLED for now: the chunked path is experimental and currently (a) emits a
@@ -442,4 +477,20 @@ pub fn pack_artifact_chunk(
         size_bytes: size,
         is_final: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Guards the silent-failure mode of the Auto chunk-size feature: if the
+    // platform RAM probe (Win GlobalMemoryStatusEx / Linux /proc/meminfo) returns
+    // 0, `resolve_chunk_bytes(0, 0)` falls back to a fixed default and "Auto"
+    // would quietly ignore the endpoint's RAM on every host. Any machine running
+    // this test has > 64 MiB free.
+    #[test]
+    fn ram_probe_returns_nonzero() {
+        let ram = available_ram_bytes();
+        assert!(ram > 64 * 1024 * 1024, "available_ram_bytes() returned {ram}");
+    }
 }

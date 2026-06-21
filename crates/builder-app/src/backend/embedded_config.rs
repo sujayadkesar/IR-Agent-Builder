@@ -37,6 +37,9 @@ pub fn placeholder() -> serde_json::Value {
             "stream_mode": false,
             "low_disk_threshold_mb": 0
         },
+        // chunk_mb intentionally omitted — the collector's EncryptionCfg
+        // serde-defaults it to 0 (auto); keeping it out matches the committed
+        // placeholder file so RestoreGuard rewrites are a no-op in git.
         "encryption": { "scheme": "none", "rsa_public_key_pem": "" },
         "upload": { "kind": "local", "local_path": "", "s3": null }
     })
@@ -147,6 +150,9 @@ pub fn build_from_spec(
                 EncryptionScheme::None => "none",
             },
             "rsa_public_key_pem": spec.encryption.public_key_pem,
+            // Streaming-encryption chunk size in MiB. 0 = auto (collector sizes
+            // it from the endpoint's RAM at runtime).
+            "chunk_mb": if spec.encrypt_chunk_auto { 0 } else { spec.encrypt_chunk_mb },
         },
         "upload": upload,
     });

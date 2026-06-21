@@ -52,6 +52,10 @@ pub struct EncryptionCfg {
     pub scheme: String,
     #[serde(default)]
     pub rsa_public_key_pem: String,
+    /// Streaming-encryption chunk size in MiB. `0` = auto (size from RAM at
+    /// runtime). Defaults to 0 so configs missing the field self-tune.
+    #[serde(default)]
+    pub chunk_mb: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
