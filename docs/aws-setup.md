@@ -145,6 +145,13 @@ After creation, attach this bucket policy (deny non-HTTPS, deny non-encrypted, d
 Add lifecycle rules (cost optimization):
 - Day 90: transition to S3 Glacier Instant Retrieval.
 - Day 180: transition to S3 Glacier Deep Archive.
+- **Abort incomplete multipart uploads after 7 days** (recommended). The collector
+  uploads large containers via S3 multipart and retries/resumes across network
+  outages and interruptions; if a run can never finish (endpoint decommissioned,
+  upload abandoned), the partial multipart would otherwise linger and accrue storage
+  cost. This rule reaps them. Note the per-build IAM policy is write-only and does
+  **not** grant `s3:AbortMultipartUpload`, so the collector's own best-effort abort
+  on a permanent error may be denied — this lifecycle rule is the reliable cleanup.
 
 Add an SNS notification on `s3:ObjectCreated:Put` to your IR oncall email — you'll get a real-time alert when any endpoint uploads new evidence.
 

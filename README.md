@@ -104,9 +104,9 @@ Each `Collector.exe`, when run on an endpoint, performs:
    - `command` artifacts → shell out to native tools (`netstat`, `tasklist`, `wevtutil`, `systemctl`) and capture stdout/stderr.
    - `registry` artifacts → `reg save` per hive.
    - `raw_ntfs` artifacts → direct volume read via the bundled NTFS parser (for `$MFT`, `$LogFile`, `$UsnJrnl:$J`).
-7. Pack scratch into a ZIP container (DEFLATE) **or** stream chunks directly to S3 via multipart upload if `chunk_upload.enabled`.
-8. **Encrypt** the ZIP with AES-256-GCM, wrap the key with RSA-OAEP-SHA256, write `[magic][hdr_len][hdr_json][ciphertext]`.
-9. **Upload** to S3 (PutObject ≤100MB, multipart for larger) with SSE-KMS — virtual-hosted for AWS, path-style for custom endpoints (MinIO/Ceph) — or copy to the configured local/UNC path (env vars like `%USERPROFILE%`/`%TEMP%` are expanded on the endpoint).
+7. Pack scratch into a ZIP container (DEFLATE). Collection runs the artifacts in parallel (`concurrency`) and stops early if the optional `max_collection_size_gb` cap is reached.
+8. **Encrypt** the ZIP into the chunked container (see [format](#encrypted-container-format)): per-chunk AES-256-GCM, the key wrapped with RSA-OAEP-SHA256 — streamed in constant memory regardless of size.
+9. **Upload** to S3 (PutObject ≤100MB, multipart for larger) with SSE-KMS — virtual-hosted for AWS, path-style for custom endpoints (MinIO/Ceph) — or copy to the configured local/UNC path (env vars like `%USERPROFILE%`/`%TEMP%` are expanded on the endpoint). **Transient/network failures retry indefinitely with capped backoff** (a network outage pauses the upload rather than failing it); an interrupted multipart upload is **resumable** — a re-run finishes it, skipping parts already accepted.
 10. Securely overwrite + delete plaintext zip and scratch.
 11. Exit with code 0 on success, 1 on any unrecoverable failure.
 
@@ -129,6 +129,20 @@ Defined in [`artifacts/bundles.yaml`](artifacts/bundles.yaml). Add your own by e
 Drop a `.yaml` file in `artifacts/custom/` (template: [`artifacts/custom/TEMPLATE.yaml`](artifacts/custom/TEMPLATE.yaml)). The catalog loader picks it up automatically on next launch.
 
 Schema reference: [`artifacts/schema.yaml`](artifacts/schema.yaml).
+
+## Performance & resource controls (Step 5)
+
+These are enforced by the collector at runtime (not just stored in the config):
+
+| Control | Effect on the endpoint |
+|---------|------------------------|
+| **CPU limit %** | Caps CPU usage via a Windows **Job Object** hard rate-limit (falls back to a lower process priority class; `nice` on Linux). `0` = unthrottled. |
+| **Concurrency** | Collects artifacts across N worker threads in parallel; results are still recorded in catalog order. `1` = sequential. |
+| **Max collection size (GB)** | Stops collecting once the running total crosses the cap — enforced **mid-artifact** (per file), so a single huge glob (e.g. `$Recycle.Bin`) can't balloon the archive. `0` = no cap. |
+| **Encryption chunk size** | Plaintext bytes sealed per chunk: a fixed value (MiB) **or Auto**, which sizes from the endpoint's available RAM (64–512 MiB). Bounds peak memory (~3× the chunk). |
+| **Progress timeout (s)** | A watchdog aborts a collection that makes no progress for this long (a stuck artifact). It first releases the VSS snapshot and wipes the plaintext scratch so a stall leaves nothing behind. Guards collection only — never the upload. |
+| **Output format** | `jsonl` (default) or `csv` — when `csv`, a `run_report.csv` is written alongside the JSON report inside the archive. |
+| **Silent mode** | Detaches the console (`FreeConsole`) so nothing is shown on the endpoint; file logging continues. |
 
 ## AWS production setup
 
@@ -160,15 +174,29 @@ The collector's `silent` mode (default) suppresses all UI; the only artifact lef
 
 ## Encrypted container format
 
+The container is **chunked (format version 2)**: the archive is encrypted in
+independent AES-256-GCM chunks, so a multi-GB collection encrypts and decrypts in
+**constant memory** — it is never loaded whole into RAM (doing so previously OOM-aborted
+the collector on large collections).
+
 ```
-+----------------+--------+--------------+---------------------+----------------------+
-| "DFIR" (4 B)   | v (1B) | hdr_len (4B) | header_json (N B)   | AES-GCM ciphertext   |
-+----------------+--------+--------------+---------------------+----------------------+
-                                                                ↑
-                                       (nonce is in header.nonce_b64 — 12 bytes)
++--------------+----------+-----------------+-------------------+
+| "DFIR" (4 B) | ver (1B) | hdr_len (4B BE) | header_json (N B) |
++--------------+----------+-----------------+-------------------+
+then, repeated until EOF, one record per chunk:
++----------------------+------------------------------+
+| chunk_len (4B BE u32)| AES-256-GCM chunk + 16B tag  |
++----------------------+------------------------------+
 ```
 
-The header JSON contains the wrapped AES key and is **AAD-bound** to the ciphertext, so any tampering with the header will fail authentication. See [`docs/decrypt.md`](docs/decrypt.md) for an analyst-side decryption helper script.
+For chunk `i`: the nonce is `nonce_base` (8 B, in `header.nonce_b64`) ‖ `i` as 4-byte
+big-endian, and the AAD is `header_json` ‖ `i` (4 B BE) ‖ a 1-byte last-chunk flag. Binding
+the index + last-flag into the AAD makes reordering, dropping, or **truncating** chunks fail
+authentication — a partial/interrupted upload can't be silently decrypted as if complete.
+The chunk size is set on Step 5 (fixed MiB or Auto-by-endpoint-RAM) and is capped so the
+`u32` length prefix can't overflow. Legacy version-1 (single-shot) containers are still
+decryptable. See [`docs/decrypt.md`](docs/decrypt.md) for the analyst-side helper (handles
+both v2 and v1).
 
 ## Credential vault format
 
