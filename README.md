@@ -132,7 +132,7 @@ Schema reference: [`artifacts/schema.yaml`](artifacts/schema.yaml).
 
 ## Performance & resource controls (Step 5)
 
-These are enforced by the collector at runtime (not just stored in the config):
+Configured in the wizard and enforced by the collector at runtime on the endpoint:
 
 | Control | Effect on the endpoint |
 |---------|------------------------|
@@ -175,9 +175,8 @@ The collector's `silent` mode (default) suppresses all UI; the only artifact lef
 ## Encrypted container format
 
 The container is **chunked (format version 2)**: the archive is encrypted in
-independent AES-256-GCM chunks, so a multi-GB collection encrypts and decrypts in
-**constant memory** — it is never loaded whole into RAM (doing so previously OOM-aborted
-the collector on large collections).
+independent AES-256-GCM chunks, so a collection of any size encrypts and decrypts in
+**constant memory** — the archive is never loaded whole into RAM.
 
 ```
 +--------------+----------+-----------------+-------------------+
@@ -193,10 +192,9 @@ For chunk `i`: the nonce is `nonce_base` (8 B, in `header.nonce_b64`) ‖ `i` as
 big-endian, and the AAD is `header_json` ‖ `i` (4 B BE) ‖ a 1-byte last-chunk flag. Binding
 the index + last-flag into the AAD makes reordering, dropping, or **truncating** chunks fail
 authentication — a partial/interrupted upload can't be silently decrypted as if complete.
-The chunk size is set on Step 5 (fixed MiB or Auto-by-endpoint-RAM) and is capped so the
-`u32` length prefix can't overflow. Legacy version-1 (single-shot) containers are still
-decryptable. See [`docs/decrypt.md`](docs/decrypt.md) for the analyst-side helper (handles
-both v2 and v1).
+The chunk size is set on Step 5 — a fixed size in MiB, or Auto, which sizes it from the
+endpoint's available RAM. Legacy version-1 (single-shot) containers are still decryptable.
+See [`docs/decrypt.md`](docs/decrypt.md) for the analyst-side helper (handles both v2 and v1).
 
 ## Credential vault format
 
