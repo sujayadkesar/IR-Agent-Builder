@@ -30,6 +30,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::config::S3Cfg;
+use crate::upload::resume::{self, PendingUpload};
 
 const SINGLE_SHOT_LIMIT: u64 = 100 * 1024 * 1024;
 const MULTIPART_PART_SIZE: u64 = 16 * 1024 * 1024;
@@ -108,7 +109,9 @@ fn put_object_single(cfg: &S3Cfg, file: &Path, key: &str) -> Result<()> {
     f.read_to_end(&mut body)?;
     let url = object_url(cfg, key);
     log::info!("S3 PutObject -> {}", url);
-    let resp = signed_request(cfg, "PUT", &url, &[], &kms_headers(cfg), &body)?;
+    let resp = with_retry("PutObject", || {
+        signed_request(cfg, "PUT", &url, &[], &kms_headers(cfg), &body)
+    });
     if resp.status() / 100 != 2 {
         // AWS returns XML errors with <Code> and <Message> elements — surface them.
         let aws_code = parse_xml_tag(&resp.body, "Code").unwrap_or_else(|| "?".to_string());
@@ -134,7 +137,9 @@ fn put_object_single(cfg: &S3Cfg, file: &Path, key: &str) -> Result<()> {
 fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Result<()> {
     // 1. CreateMultipartUpload — POST /{key}?uploads
     let url = format!("{}?uploads", object_url(cfg, key));
-    let resp = signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])?;
+    let resp = with_retry("CreateMultipartUpload", || {
+        signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])
+    });
     if resp.status() / 100 != 2 {
         bail!("CreateMultipartUpload failed: status={} body={}", resp.status(), resp.body);
     }
@@ -166,38 +171,22 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
         ];
         let q_pairs: Vec<(&str, &str)> = q.iter().map(|(a, b)| (*a, b.as_str())).collect();
 
-        // Retry up to 3 times on transient failure.
-        let mut attempts = 0;
-        loop {
-            attempts += 1;
-            match signed_request(cfg, "PUT", &part_url, &q_pairs, &[], &buf) {
-                Ok(r) if r.status() / 100 == 2 => {
-                    let etag = r
-                        .header("etag")
-                        .map(|s| s.trim_matches('"').to_string())
-                        .ok_or_else(|| anyhow!("no ETag on UploadPart response"))?;
-                    log::info!("Part {}/{} OK ({} bytes) etag={}", part_num, total_parts, to_read, etag);
-                    etags.push((part_num, etag));
-                    break;
-                }
-                Ok(r) => {
-                    if attempts >= 3 {
-                        // Best-effort abort
-                        let _ = abort_multipart(cfg, key, &upload_id);
-                        bail!("UploadPart {} failed: status={} body={}", part_num, r.status(), r.body);
-                    }
-                    log::warn!("UploadPart {} retry {} (status={})", part_num, attempts, r.status());
-                }
-                Err(e) => {
-                    if attempts >= 3 {
-                        let _ = abort_multipart(cfg, key, &upload_id);
-                        bail!("UploadPart {} error: {e:#}", part_num);
-                    }
-                    log::warn!("UploadPart {} retry {} ({e:#})", part_num, attempts);
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(500 * attempts as u64));
+        // Transient failures (network down, 5xx, throttling) retry forever via
+        // with_retry — a network outage pauses the part, it does not fail it.
+        // Only a permanent error (4xx) aborts the whole multipart.
+        let r = with_retry(&format!("UploadPart {part_num}/{total_parts}"), || {
+            signed_request(cfg, "PUT", &part_url, &q_pairs, &[], &buf)
+        });
+        if r.status() / 100 != 2 {
+            let _ = abort_multipart(cfg, key, &upload_id);
+            bail!("UploadPart {} failed (permanent): status={} body={}", part_num, r.status(), r.body);
         }
+        let etag = r
+            .header("etag")
+            .map(|s| s.trim_matches('"').to_string())
+            .ok_or_else(|| anyhow!("no ETag on UploadPart response"))?;
+        log::info!("Part {}/{} OK ({} bytes) etag={}", part_num, total_parts, to_read, etag);
+        etags.push((part_num, etag));
     }
 
     // 3. CompleteMultipartUpload — POST /{key}?uploadId=...
@@ -207,12 +196,207 @@ fn put_object_multipart(cfg: &S3Cfg, file: &Path, key: &str, size: u64) -> Resul
         object_url(cfg, key),
         urlencode_query(&upload_id),
     );
-    let resp = signed_request(cfg, "POST", &cu, &[("uploadId", &upload_id)], &[], body.as_bytes())?;
+    let resp = with_retry("CompleteMultipartUpload", || {
+        signed_request(cfg, "POST", &cu, &[("uploadId", &upload_id)], &[], body.as_bytes())
+    });
     if resp.status() / 100 != 2 {
         bail!("CompleteMultipartUpload failed: status={} body={}", resp.status(), resp.body);
     }
     log::info!("Multipart upload completed: key={} parts={}", key, etags.len());
     Ok(())
+}
+
+// ---- Resumable container upload (survives a crash/reboot mid-upload) ----
+
+/// Upload the evidence container, recording progress to a local state file so a
+/// re-run of the same build can finish it after an interruption. Small files use
+/// single-shot (re-PUT on resume); large files use multipart (skip parts S3 has
+/// already accepted). The state file holds NO credentials.
+pub fn upload_resumable(cfg: &S3Cfg, file: &Path, object_key: &str, build_id: &str) -> Result<()> {
+    let key = object_key.trim_start_matches('/').to_string();
+    let size = std::fs::metadata(file)?.len();
+    log::info!(
+        "S3 upload (resumable) -> bucket={} key={} size_bytes={} ({}MB)",
+        cfg.bucket, key, size, size / 1024 / 1024
+    );
+    log::info!("S3 SSE-KMS: {}", if cfg.sse_kms_key_id.is_some() { "ENABLED" } else { "(not set)" });
+
+    let part_size = if size <= SINGLE_SHOT_LIMIT { SINGLE_SHOT_LIMIT } else { MULTIPART_PART_SIZE };
+    let state = PendingUpload {
+        object_key: key.clone(),
+        container_path: file.to_string_lossy().to_string(),
+        file_size: size,
+        part_size,
+        upload_id: None,
+        completed_parts: Vec::new(),
+        build_id: build_id.to_string(),
+        created_at: Utc::now().to_rfc3339(),
+    };
+
+    if size <= SINGLE_SHOT_LIMIT {
+        // Record intent so a crash mid-PUT lets a re-run re-PUT the whole file.
+        resume::save(&state);
+        put_object_single(cfg, file, &key)?;
+        resume::clear();
+        Ok(())
+    } else {
+        multipart_with_state(cfg, file, &key, size, state)
+    }
+}
+
+/// Drive a multipart upload from `state`. If `state.upload_id` is `None` a new
+/// upload is created; otherwise the existing one is resumed. Only parts NOT in
+/// `state.completed_parts` are uploaded, and the state is persisted AFTER each
+/// part's 2xx — so a crash between the part landing and the state write merely
+/// re-uploads that part (re-PUT of the same part number is idempotent in S3).
+fn multipart_with_state(
+    cfg: &S3Cfg,
+    file: &Path,
+    key: &str,
+    size: u64,
+    mut state: PendingUpload,
+) -> Result<()> {
+    let upload_id = match state.upload_id.clone() {
+        Some(id) => {
+            log::info!(
+                "Resuming multipart id={} ({} of ~{} parts already done)",
+                id,
+                state.completed_parts.len(),
+                size.div_ceil(state.part_size)
+            );
+            id
+        }
+        None => {
+            let url = format!("{}?uploads", object_url(cfg, key));
+            let resp = with_retry("CreateMultipartUpload", || {
+                signed_request(cfg, "POST", &url, &[("uploads", "")], &kms_headers(cfg), &[])
+            });
+            if resp.status() / 100 != 2 {
+                bail!("CreateMultipartUpload failed: status={} body={}", resp.status(), resp.body);
+            }
+            let id = parse_xml_tag(&resp.body, "UploadId")
+                .ok_or_else(|| anyhow!("no UploadId in response: {}", resp.body))?;
+            log::info!("Multipart upload started: id={}", id);
+            state.upload_id = Some(id.clone());
+            resume::save(&state);
+            id
+        }
+    };
+
+    let part_size = state.part_size;
+    let total = size.div_ceil(part_size) as u32;
+    let mut f = File::open(file)?;
+    for part_num in resume::missing_parts(size, part_size, &state.completed_parts) {
+        let offset = (part_num as u64 - 1) * part_size;
+        let to_read = std::cmp::min(part_size, size - offset);
+        f.seek(SeekFrom::Start(offset))?;
+        let mut buf = vec![0u8; to_read as usize];
+        f.read_exact(&mut buf)?;
+
+        let part_url = format!(
+            "{}?partNumber={}&uploadId={}",
+            object_url(cfg, key),
+            part_num,
+            urlencode_query(&upload_id),
+        );
+        let q = [("partNumber", part_num.to_string()), ("uploadId", upload_id.clone())];
+        let q_pairs: Vec<(&str, &str)> = q.iter().map(|(a, b)| (*a, b.as_str())).collect();
+
+        let r = with_retry(&format!("UploadPart {part_num}/{total}"), || {
+            signed_request(cfg, "PUT", &part_url, &q_pairs, &[], &buf)
+        });
+        if r.status() / 100 != 2 {
+            // Permanent (e.g. NoSuchUpload after a lifecycle-reaped upload):
+            // abort and bail. try_resume then discards state and collects fresh
+            // rather than wedging forever on a dead upload id.
+            let _ = abort_multipart(cfg, key, &upload_id);
+            bail!("UploadPart {} failed (permanent): status={} body={}", part_num, r.status(), r.body);
+        }
+        let etag = r
+            .header("etag")
+            .map(|s| s.trim_matches('"').to_string())
+            .ok_or_else(|| anyhow!("no ETag on UploadPart response"))?;
+        log::info!("Part {}/{} OK ({} bytes) etag={}", part_num, total, to_read, etag);
+        state.completed_parts.push((part_num, etag)); // persist AFTER the 2xx
+        resume::save(&state);
+    }
+
+    state.completed_parts.sort_by_key(|(n, _)| *n);
+    let body = complete_body(&state.completed_parts);
+    let cu = format!("{}?uploadId={}", object_url(cfg, key), urlencode_query(&upload_id));
+    let resp = with_retry("CompleteMultipartUpload", || {
+        signed_request(cfg, "POST", &cu, &[("uploadId", &upload_id)], &[], body.as_bytes())
+    });
+    if resp.status() / 100 != 2 {
+        bail!("CompleteMultipartUpload failed: status={} body={}", resp.status(), resp.body);
+    }
+    log::info!("Multipart upload completed: key={} parts={}", key, state.completed_parts.len());
+    resume::clear();
+    Ok(())
+}
+
+/// Finish a pending upload from saved state. The caller (`upload::try_resume`)
+/// has already confirmed the container exists and its size/build match.
+pub fn resume_pending(cfg: &S3Cfg, state: PendingUpload) -> Result<()> {
+    let file = std::path::PathBuf::from(&state.container_path);
+    let size = state.file_size;
+    let key = state.object_key.clone();
+    if state.upload_id.is_some() {
+        multipart_with_state(cfg, &file, &key, size, state)
+    } else {
+        put_object_single(cfg, &file, &key)?;
+        resume::clear();
+        Ok(())
+    }
+}
+
+/// HTTP statuses worth retrying: server-side / throttling / request-timeout.
+/// Other 4xx (bad creds, missing bucket, signature) are permanent config errors
+/// — retrying them forever would just hide the real problem.
+fn is_transient_status(code: u16) -> bool {
+    code >= 500 || code == 429 || code == 408
+}
+
+/// Run one signed S3 request, retrying *transient* failures indefinitely with
+/// capped exponential backoff (2s → 30s). A network outage therefore pauses the
+/// upload instead of failing it: each attempt re-issues the real request (which
+/// doubles as the connectivity probe) and re-signs with a fresh timestamp (SigV4
+/// signatures expire after ~15 min, so a cached one would be rejected after a
+/// long wait). Returns on the first 2xx, or immediately on a permanent 4xx so the
+/// caller can surface a real error.
+fn with_retry<F>(label: &str, f: F) -> SignedResp
+where
+    F: Fn() -> Result<SignedResp>,
+{
+    let start = std::time::Instant::now();
+    let mut backoff = std::time::Duration::from_secs(2);
+    let max_backoff = std::time::Duration::from_secs(30);
+    let mut attempt: u64 = 0;
+    loop {
+        attempt += 1;
+        match f() {
+            Ok(r) if r.status() / 100 == 2 => {
+                if attempt > 1 {
+                    log::info!(
+                        "[s3] {label}: recovered after {attempt} attempts ({}s waiting for connectivity)",
+                        start.elapsed().as_secs()
+                    );
+                }
+                return r;
+            }
+            Ok(r) if !is_transient_status(r.status()) => return r, // permanent — caller surfaces it
+            Ok(r) => log::warn!(
+                "[s3] {label}: transient HTTP {} (attempt {attempt}, {}s elapsed); retrying in {}s",
+                r.status(), start.elapsed().as_secs(), backoff.as_secs()
+            ),
+            Err(e) => log::warn!(
+                "[s3] {label}: network error (attempt {attempt}, {}s elapsed): {e:#}; retrying in {}s",
+                start.elapsed().as_secs(), backoff.as_secs()
+            ),
+        }
+        std::thread::sleep(backoff);
+        backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
+    }
 }
 
 fn abort_multipart(cfg: &S3Cfg, key: &str, upload_id: &str) -> Result<()> {
@@ -527,6 +711,44 @@ mod tests {
         // Default ports are normalized away by both the url crate and ureq.
         let u2 = url::Url::parse("https://ir-evidence.s3.ap-south-1.amazonaws.com/k").unwrap();
         assert_eq!(header_host(&u2).unwrap(), "ir-evidence.s3.ap-south-1.amazonaws.com");
+    }
+
+    #[test]
+    fn transient_status_classification() {
+        for c in [500u16, 502, 503, 504, 429, 408] {
+            assert!(is_transient_status(c), "{c} should be transient");
+        }
+        for c in [400u16, 401, 403, 404] {
+            assert!(!is_transient_status(c), "{c} should be permanent");
+        }
+    }
+
+    #[test]
+    fn with_retry_recovers_after_transient_then_succeeds() {
+        use std::cell::Cell;
+        // Fail once with a 503 (one ~2s backoff), then succeed — with_retry must
+        // loop and return the 2xx.
+        let calls = Cell::new(0u32);
+        let r = with_retry("test", || {
+            let n = calls.get() + 1;
+            calls.set(n);
+            let status = if n < 2 { 503 } else { 200 };
+            Ok(SignedResp { status_u16: status, body: String::new(), headers: vec![] })
+        });
+        assert_eq!(r.status(), 200);
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn with_retry_returns_permanent_4xx_immediately() {
+        use std::cell::Cell;
+        let calls = Cell::new(0u32);
+        let r = with_retry("test", || {
+            calls.set(calls.get() + 1);
+            Ok(SignedResp { status_u16: 403, body: "AccessDenied".into(), headers: vec![] })
+        });
+        assert_eq!(r.status(), 403);
+        assert_eq!(calls.get(), 1, "permanent error must not retry");
     }
 
     #[test]

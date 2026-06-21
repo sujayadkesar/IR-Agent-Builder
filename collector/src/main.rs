@@ -338,6 +338,14 @@ fn run() -> Result<()> {
     // Resource governance from the build config.
     throttle::apply_cpu_limit(cfg.cpu_limit_percent);
 
+    // If a previous run was interrupted mid-upload, finish that upload now and
+    // exit — re-collecting would produce a different encrypted container and
+    // corrupt the resume. Best-effort: a stale/dead state just falls through.
+    if upload::try_resume(&cfg.upload, &cfg.build_id) {
+        log::info!("Resumed and completed a prior interrupted upload; nothing else to do.");
+        return Ok(());
+    }
+
     // 6. Admin/root elevation check
     if cfg.require_admin && !elevation::is_elevated() {
         log::error!(
@@ -638,7 +646,9 @@ fn run() -> Result<()> {
         };
 
         let upload_started = std::time::Instant::now();
-        upload::dispatch(&cfg.upload, &container_path, &object_key)?;
+        // Resumable: records progress so an interrupted upload can be finished
+        // by a re-run (see upload::try_resume at startup).
+        upload::dispatch_resumable(&cfg.upload, &container_path, &object_key, &cfg.build_id)?;
         log::info!("Upload complete in {:?}", upload_started.elapsed());
 
         // Sidecar log upload. The log holds metadata (hostname, collected file
