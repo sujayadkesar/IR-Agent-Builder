@@ -229,6 +229,12 @@ pub fn decrypt_file(enc_path: &Path, out_path: &Path, privkey_pem: &str) -> Resu
 
     if ver[0] == 1 {
         // Legacy single-shot: nonce(12) + whole-body GCM, AAD = header bytes.
+        // Validate length first — Nonce::from_slice PANICS on a non-12-byte slice,
+        // so a malformed/corrupt container must be rejected with a clean error
+        // (mirrors the v2 guard below).
+        if nonce_b.len() != 12 {
+            bail!("v1 nonce must be 12 bytes, got {}", nonce_b.len());
+        }
         let mut body = Vec::new();
         input.read_to_end(&mut body)?;
         let pt = cipher
