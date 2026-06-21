@@ -104,7 +104,21 @@ pub struct BuildSpec {
     pub progress_timeout_seconds: u64,
     pub output_format: OutputFormat,
     pub max_collection_size_gb: u64,
+
+    /// Plaintext bytes per chunk during streaming encryption, in MiB. Bounds the
+    /// collector's peak memory (~3x this) when sealing the final ZIP, so a
+    /// multi-GB collection never loads whole into RAM. Ignored when
+    /// `encrypt_chunk_auto` is set. `#[serde(default)]` keeps older saved
+    /// projects / dev-state loadable.
+    #[serde(default = "default_encrypt_chunk_mb")]
+    pub encrypt_chunk_mb: u64,
+    /// When true, the collector picks a safe chunk size at runtime from the
+    /// endpoint's available RAM (encoded as `chunk_mb = 0` in the build config).
+    #[serde(default)]
+    pub encrypt_chunk_auto: bool,
 }
+
+fn default_encrypt_chunk_mb() -> u64 { 400 }
 
 impl Default for BuildSpec {
     fn default() -> Self {
@@ -139,6 +153,8 @@ impl Default for BuildSpec {
             progress_timeout_seconds: 3600,
             output_format: OutputFormat::Jsonl,
             max_collection_size_gb: 0,
+            encrypt_chunk_mb: default_encrypt_chunk_mb(),
+            encrypt_chunk_auto: false,
         }
     }
 }

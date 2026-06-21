@@ -1,6 +1,6 @@
 # DFIR Agent Builder
 
-> Velociraptor-class triage collector compiler — desktop wizard, AWS S3 / KMS write-only uploads, single-binary Rust collector. Built for mass GPO deployment.
+> DFIR triage collector compiler — a desktop wizard that builds a single, self-contained Rust collector binary with AWS S3 / KMS write-only uploads. Built for mass GPO deployment.
 
 ![architecture](docs/architecture.svg)
 

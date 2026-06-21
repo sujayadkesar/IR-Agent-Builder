@@ -32,6 +32,16 @@ pub fn view(ui: &mut egui::Ui, spec: &mut BuildSpec) {
                 ui.add(egui::DragValue::new(&mut spec.max_collection_size_gb).range(0..=512).suffix(" GB  (0 = no cap)"));
                 ui.end_row();
 
+                ui.label("Encryption chunk size");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut spec.encrypt_chunk_auto, "Auto (by endpoint RAM)");
+                    ui.add_enabled(
+                        !spec.encrypt_chunk_auto,
+                        egui::DragValue::new(&mut spec.encrypt_chunk_mb).range(16..=4096).suffix(" MiB"),
+                    );
+                });
+                ui.end_row();
+
                 ui.label("Output format");
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut spec.output_format, OutputFormat::Jsonl, "JSONL");
@@ -39,6 +49,17 @@ pub fn view(ui: &mut egui::Ui, spec: &mut BuildSpec) {
                 });
                 ui.end_row();
             });
+
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(
+                "Encryption chunk size bounds the collector's peak RAM while sealing the final \
+                 archive (~3x this), so multi-GB collections never load whole into memory. Auto \
+                 sizes it from the endpoint's available RAM (64–512 MiB).",
+            )
+            .small()
+            .color(theme::MUTED),
+        );
 
         ui.add_space(16.0);
         caption(ui, "HARDENING");
